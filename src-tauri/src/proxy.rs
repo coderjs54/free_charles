@@ -603,9 +603,11 @@ impl CaptureProxy {
             format!("http://{raw_url}")
         };
         let target = Url::parse(&with_protocol).map_err(|_| "URL 格式不正确".to_string())?;
-        if target.scheme() != "http" {
-            return Err("FreeCharles 仅支持发送 HTTP 请求（不支持 HTTPS）".to_string());
+        let scheme = target.scheme().to_string();
+        if scheme != "http" && scheme != "https" {
+            return Err("仅支持 http / https 请求".to_string());
         }
+        let is_https = scheme == "https";
         let method = if payload.method.trim().is_empty() {
             "GET".to_string()
         } else {
@@ -646,11 +648,15 @@ impl CaptureProxy {
             host: target.host_str().unwrap_or_default().to_string(),
             port: target.port_or_known_default().unwrap_or(80),
             path,
-            protocol: "http".to_string(),
+            protocol: scheme,
             client_ip: "127.0.0.1".to_string(),
             tunnel: false,
             decrypted: false,
-            note: Some("Compose 手动发送".to_string()),
+            note: Some(if is_https {
+                "Compose 手动发送（HTTPS）".to_string()
+            } else {
+                "Compose 手动发送".to_string()
+            }),
             repeat_of: None,
             http_version: Some("HTTP/1.1".to_string()),
         });
