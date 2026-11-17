@@ -5,8 +5,9 @@ use tauri::{AppHandle, Manager};
 use crate::body::{decode_buffer, render_body};
 use crate::har::build_har;
 use crate::models::{
-    AppSettings, AppSettingsPatch, ComposePayload, EntryDetail, EntryMeta, HttpsCaInfo, ProxyStatus,
-    SaveBodyResult, SaveResult, SessionFileData, SystemProxyState, EVENT_LOADED, EVENT_SETTINGS,
+    AppSettings, AppSettingsPatch, ComposePayload, EntryDetail, EntryMeta, HttpsCaInfo,
+    ProxyStatus, SaveBodyResult, SaveResult, SessionFileData, SystemProxyState, EVENT_LOADED,
+    EVENT_SETTINGS,
 };
 use crate::proxy::ProxyOptionsPatch;
 use crate::AppState;
@@ -168,7 +169,8 @@ pub async fn update_settings(
     let need_restart = {
         let state = app.state::<AppState>();
         let status = state.proxy.status();
-        status.running && (previous.proxy_port != next.proxy_port || previous.allow_lan != next.allow_lan)
+        status.running
+            && (previous.proxy_port != next.proxy_port || previous.allow_lan != next.allow_lan)
     };
     if need_restart {
         let _ = app.state::<AppState>().proxy.start().await;
@@ -182,7 +184,8 @@ pub async fn update_settings(
 pub fn save_session(app: AppHandle, path: String) -> Result<SaveResult, String> {
     let data = app.state::<AppState>().store().export_session();
     let count = data.entries.len();
-    let text = serde_json::to_string_pretty(&data).map_err(|error| format!("会话序列化失败：{error}"))?;
+    let text =
+        serde_json::to_string_pretty(&data).map_err(|error| format!("会话序列化失败：{error}"))?;
     std::fs::write(&path, text).map_err(|error| format!("保存会话失败：{error}"))?;
     Ok(SaveResult { path, count })
 }
@@ -223,7 +226,8 @@ pub fn export_har(app: AppHandle, path: String) -> Result<SaveResult, String> {
     }
     let har = build_har(&details);
     let count = details.len();
-    let text = serde_json::to_string_pretty(&har).map_err(|error| format!("HAR 序列化失败：{error}"))?;
+    let text =
+        serde_json::to_string_pretty(&har).map_err(|error| format!("HAR 序列化失败：{error}"))?;
     std::fs::write(&path, text).map_err(|error| format!("导出 HAR 失败：{error}"))?;
     Ok(SaveResult { path, count })
 }
@@ -270,7 +274,11 @@ pub fn suggest_body_file_name(app: AppHandle, id: String, side: String) -> Resul
     Ok(file_name_from_url(
         &tx.meta.url,
         extension_from_mime(mime),
-        if side == "request" { "request" } else { "response" },
+        if side == "request" {
+            "request"
+        } else {
+            "response"
+        },
     ))
 }
 
@@ -322,19 +330,14 @@ fn extension_from_mime(mime: &str) -> &'static str {
 }
 
 fn file_name_from_url(url: &str, extension: &str, side: &str) -> String {
+    // 取路径最后一个非空分段作为文件名
     let mut name = url::Url::parse(url)
         .ok()
-        .map(|parsed| {
+        .and_then(|parsed| {
             parsed
                 .path_segments()
-                .map(|segments| {
-                    segments
-                        .filter(|segment| !segment.is_empty())
-                        .next_back()
-                        .unwrap_or("")
-                        .to_string()
-                })
-                .unwrap_or_default()
+                .and_then(|segments| segments.rev().find(|segment| !segment.is_empty()))
+                .map(|segment| segment.to_string())
         })
         .unwrap_or_default();
     name = name

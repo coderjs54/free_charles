@@ -54,8 +54,14 @@ fn build_entry(entry: &EntryDetail) -> Value {
     request.insert("method".into(), json!(entry.meta.method));
     request.insert("url".into(), json!(entry.meta.url));
     request.insert("httpVersion".into(), json!(entry.http_version));
-    request.insert("cookies".into(), json!(parse_request_cookies(&request_cookie_header)));
-    request.insert("headers".into(), json!(to_har_headers(&entry.request_headers)));
+    request.insert(
+        "cookies".into(),
+        json!(parse_request_cookies(&request_cookie_header)),
+    );
+    request.insert(
+        "headers".into(),
+        json!(to_har_headers(&entry.request_headers)),
+    );
     request.insert("queryString".into(), Value::Array(query_string));
     if let Some(post_data) = post_data {
         request.insert("postData".into(), post_data);
@@ -65,10 +71,16 @@ fn build_entry(entry: &EntryDetail) -> Value {
 
     let mut response = Map::new();
     response.insert("status".into(), json!(entry.meta.status.unwrap_or(0)));
-    response.insert("statusText".into(), json!(entry.meta.status_text.clone().unwrap_or_default()));
+    response.insert(
+        "statusText".into(),
+        json!(entry.meta.status_text.clone().unwrap_or_default()),
+    );
     response.insert("httpVersion".into(), json!(entry.http_version));
     response.insert("cookies".into(), json!(response_cookies));
-    response.insert("headers".into(), json!(to_har_headers(&entry.response_headers)));
+    response.insert(
+        "headers".into(),
+        json!(to_har_headers(&entry.response_headers)),
+    );
     response.insert(
         "content".into(),
         build_content(
@@ -158,7 +170,9 @@ fn parse_request_cookies(cookie_header: &str) -> Vec<Value> {
         .map(|part| part.trim())
         .filter(|part| !part.is_empty())
         .map(|part| match part.find('=') {
-            Some(index) if index > 0 => json!({ "name": &part[..index], "value": &part[index + 1..] }),
+            Some(index) if index > 0 => {
+                json!({ "name": &part[..index], "value": &part[index + 1..] })
+            }
             _ => json!({ "name": part, "value": "" }),
         })
         .collect()

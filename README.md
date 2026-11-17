@@ -42,6 +42,39 @@ npx tauri build --no-bundle  # 只生成可执行文件
 npm run build                # 仅前端类型检查 + 打包
 ```
 
+## 持续集成与发布
+
+`.github/workflows/ci.yml` 在 `windows-latest` 上依次执行：安装依赖 → 前端类型检查与打包 → `cargo fmt --check` → `cargo clippy --all-targets -- -D warnings` → `tauri build`（NSIS 安装包）→ 上传构建产物。
+
+触发规则：
+
+| 事件 | 行为 |
+| --- | --- |
+| push 到 `master` / `main` | 构建并上传 artifact（14 天） |
+| Pull Request | 同上，用于提前发现编译与格式问题 |
+| 手动 `workflow_dispatch` | 同上 |
+| push `v*` 标签 | 校验版本号一致后构建，并创建 GitHub Release |
+
+发布流程：
+
+1. 同时更新三处版本号：`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`（CI 会校验三者与 tag 一致）。
+2. 提交代码并打标签：
+
+   ```bash
+   git tag v1.1.0
+   git push origin master --tags
+   ```
+
+3. Actions 自动构建并发布，Release 中会包含：
+   - `FreeCharles_<version>_x64-setup.exe`：NSIS 安装包（当前用户安装）
+   - `FreeCharles-portable.exe`：免安装可执行文件
+
+说明：
+
+- 带后缀的标签（如 `v1.1.0-beta.1`）会被标记为 pre-release。
+- 未配置代码签名，用户首次运行安装包时 Windows SmartScreen 会提示「未知发布者」。
+- 目前只构建 Windows x64；如需 macOS / Linux 产物，可把 `windows` job 改成 `strategy.matrix` 并补充对应平台的系统依赖。
+
 ## 抓包使用说明
 
 1. 启动应用后默认监听 `127.0.0.1:8888`，并自动接管 Windows 系统代理（可在设置中关闭）。

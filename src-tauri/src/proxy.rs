@@ -266,7 +266,11 @@ impl ProxyInner {
         if req.uri().scheme().is_some() {
             return false;
         }
-        let Some(host) = req.headers().get(HOST).and_then(|value| value.to_str().ok()) else {
+        let Some(host) = req
+            .headers()
+            .get(HOST)
+            .and_then(|value| value.to_str().ok())
+        else {
             return false;
         };
         let (target_host, target_port) = split_host_port(host);
@@ -280,7 +284,9 @@ impl ProxyInner {
             "0.0.0.0".to_string(),
         ];
         local_names.push(lan_address().to_lowercase());
-        local_names.iter().any(|name| name == &target_host.to_lowercase())
+        local_names
+            .iter()
+            .any(|name| name == &target_host.to_lowercase())
     }
 }
 
@@ -393,7 +399,11 @@ impl CaptureProxy {
     pub async fn start(&self) -> Result<ProxyStatus, String> {
         self.stop(true).await;
         let options = self.inner.options_snapshot();
-        let bind_host = if options.allow_lan { "0.0.0.0" } else { "127.0.0.1" };
+        let bind_host = if options.allow_lan {
+            "0.0.0.0"
+        } else {
+            "127.0.0.1"
+        };
 
         let listener = match TcpListener::bind((bind_host, options.port)).await {
             Ok(listener) => listener,
@@ -526,7 +536,9 @@ impl CaptureProxy {
             return Err("请求尚未完成，暂时无法重放".to_string());
         }
         if source_meta.tunnel || source_meta.method == "CONNECT" {
-            return Err("HTTPS 隧道请求无法重放，请先开启 HTTPS 解密并选择解密后的请求".to_string());
+            return Err(
+                "HTTPS 隧道请求无法重放，请先开启 HTTPS 解密并选择解密后的请求".to_string(),
+            );
         }
         let target = Url::parse(&source_meta.url).map_err(|_| "原请求 URL 无法解析".to_string())?;
         if target.scheme() != "http" && target.scheme() != "https" {
@@ -562,7 +574,8 @@ impl CaptureProxy {
                 tx.request_header_size = headers_size(&tx.request_headers)
                     + request_line_size(&source_meta.method, &source_meta.path);
                 tx.request_encoding = find_pair(&tx.request_headers, "content-encoding");
-                tx.meta.request_mime = find_pair(&tx.request_headers, "content-type").unwrap_or_default();
+                tx.meta.request_mime =
+                    find_pair(&tx.request_headers, "content-type").unwrap_or_default();
                 if let Some(body) = &body {
                     tx.push_request_chunk(body, limit);
                 }
@@ -647,7 +660,8 @@ impl CaptureProxy {
             if let Some(tx) = store.tx_mut(&tx_id) {
                 tx.request_headers = header_pairs;
                 tx.request_header_size = header_size;
-                tx.meta.request_mime = find_pair(&tx.request_headers, "content-type").unwrap_or_default();
+                tx.meta.request_mime =
+                    find_pair(&tx.request_headers, "content-type").unwrap_or_default();
                 tx.request_encoding = find_pair(&tx.request_headers, "content-encoding");
                 if let Some(body) = &body {
                     tx.push_request_chunk(body, limit);
@@ -756,8 +770,12 @@ impl CaptureProxy {
                     } else {
                         expected_response_length(response.headers(), response.status())
                     };
-                    let mut body =
-                        capture_response_body(&inner, &Some(tx_id.clone()), response.into_body(), expected);
+                    let mut body = capture_response_body(
+                        &inner,
+                        &Some(tx_id.clone()),
+                        response.into_body(),
+                        expected,
+                    );
                     while let Some(frame) = body.frame().await {
                         if frame.is_err() {
                             break;
@@ -910,7 +928,11 @@ async fn route(
     match tokio::time::timeout(REQUEST_TIMEOUT, ctx.client().request(outgoing)).await {
         Err(_) => {
             if let Some(id) = &tx_id {
-                lock_store(&ctx.store).finalize(id, "error", Some("请求超时（5 分钟）".to_string()));
+                lock_store(&ctx.store).finalize(
+                    id,
+                    "error",
+                    Some("请求超时（5 分钟）".to_string()),
+                );
             }
             Ok(message_response(
                 StatusCode::GATEWAY_TIMEOUT,
@@ -1157,30 +1179,35 @@ async fn handle_upgrade(
     *outgoing.headers_mut() = outgoing_headers;
 
     let perf_start = Instant::now();
-    let mut upstream_response = match tokio::time::timeout(REQUEST_TIMEOUT, ctx.client().request(outgoing)).await {
-        Err(_) => {
-            if let Some(id) = &tx_id {
-                lock_store(&ctx.store).finalize(id, "error", Some("请求超时（5 分钟）".to_string()));
+    let mut upstream_response =
+        match tokio::time::timeout(REQUEST_TIMEOUT, ctx.client().request(outgoing)).await {
+            Err(_) => {
+                if let Some(id) = &tx_id {
+                    lock_store(&ctx.store).finalize(
+                        id,
+                        "error",
+                        Some("请求超时（5 分钟）".to_string()),
+                    );
+                }
+                return Ok(message_response(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "Gateway Timeout",
+                    "请求超时（5 分钟）",
+                ));
             }
-            return Ok(message_response(
-                StatusCode::GATEWAY_TIMEOUT,
-                "Gateway Timeout",
-                "请求超时（5 分钟）",
-            ));
-        }
-        Ok(Err(error)) => {
-            let message = friendly_client_error(&error);
-            if let Some(id) = &tx_id {
-                lock_store(&ctx.store).finalize(id, "error", Some(message.clone()));
+            Ok(Err(error)) => {
+                let message = friendly_client_error(&error);
+                if let Some(id) = &tx_id {
+                    lock_store(&ctx.store).finalize(id, "error", Some(message.clone()));
+                }
+                return Ok(message_response(
+                    StatusCode::BAD_GATEWAY,
+                    "Bad Gateway",
+                    &message,
+                ));
             }
-            return Ok(message_response(
-                StatusCode::BAD_GATEWAY,
-                "Bad Gateway",
-                &message,
-            ));
-        }
-        Ok(Ok(response)) => response,
-    };
+            Ok(Ok(response)) => response,
+        };
 
     record_response_head(&ctx, &tx_id, &upstream_response, perf_start);
 
@@ -1256,8 +1283,8 @@ fn record_response_head(
         tx.meta.response_mime = find_pair_map(headers, CONTENT_TYPE).unwrap_or_default();
         tx.response_encoding = find_pair_map(headers, CONTENT_ENCODING);
         tx.response_headers = pairs_from_header_map(headers, "");
-        tx.response_header_size = headers_size_raw(&tx.response_headers)
-            + status_line_size(response.status());
+        tx.response_header_size =
+            headers_size_raw(&tx.response_headers) + status_line_size(response.status());
         tx.meta.response_size = tx.response_header_size;
         tx.http_version = version_text(response.version());
         tx.timings.first_byte_at = Some(now_ms());
@@ -1325,15 +1352,11 @@ fn capture_response_body(
         }),
         Box::new(move |end: BodyEnd| {
             let mut store = lock_store(&end_store);
-            let received = store
-                .tx(&id)
-                .map(|tx| tx.response_body_size)
-                .unwrap_or(0);
+            let received = store.tx(&id).map(|tx| tx.response_body_size).unwrap_or(0);
             if let Some(tx) = store.tx_mut(&id) {
                 let ended_at = now_ms();
-                tx.timings.receive_ms = Some(
-                    ended_at.saturating_sub(tx.timings.first_byte_at.unwrap_or(ended_at)),
-                );
+                tx.timings.receive_ms =
+                    Some(ended_at.saturating_sub(tx.timings.first_byte_at.unwrap_or(ended_at)));
             }
             let failure = match end {
                 BodyEnd::Finished => None,

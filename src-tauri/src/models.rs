@@ -81,7 +81,7 @@ pub struct BodyView {
     pub decode_error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TimingInfo {
     pub started_at: u64,
@@ -97,19 +97,6 @@ pub struct TimingInfo {
     pub receive_ms: Option<u64>,
     #[serde(skip_serializing_if = "is_none")]
     pub total_ms: Option<u64>,
-}
-
-impl Default for TimingInfo {
-    fn default() -> Self {
-        Self {
-            started_at: 0,
-            first_byte_at: None,
-            completed_at: None,
-            wait_ms: None,
-            receive_ms: None,
-            total_ms: None,
-        }
-    }
 }
 
 /// 详情面板数据（按需请求，避免列表事件数据过大）

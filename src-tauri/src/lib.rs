@@ -131,7 +131,8 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.eval("window.location.reload()");
                 }
             }
-            "devtools" => {
+            "devtools" =>
+            {
                 #[cfg(debug_assertions)]
                 if let Some(window) = app.get_webview_window("main") {
                     window.open_devtools();

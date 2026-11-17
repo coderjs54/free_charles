@@ -439,12 +439,8 @@ impl SessionStore {
                 .as_deref()
                 .and_then(|value| decoder.decode(value).ok())
                 .map(Bytes::from);
-            let request_header_size = meta
-                .request_size
-                .saturating_sub(entry.request_body_size);
-            let response_header_size = meta
-                .response_size
-                .saturating_sub(entry.response_body_size);
+            let request_header_size = meta.request_size.saturating_sub(entry.request_body_size);
+            let response_header_size = meta.response_size.saturating_sub(entry.response_body_size);
             let tx = StoredTransaction {
                 meta: meta.clone(),
                 request_headers: entry.request_headers,

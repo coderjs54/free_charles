@@ -84,7 +84,12 @@ impl SystemProxyManager {
         if self.active {
             if self.server != server {
                 if !write_registry_value(INTERNET_SETTINGS_KEY, "ProxyEnable", "REG_DWORD", "1")
-                    || !write_registry_value(INTERNET_SETTINGS_KEY, "ProxyServer", "REG_SZ", &server)
+                    || !write_registry_value(
+                        INTERNET_SETTINGS_KEY,
+                        "ProxyServer",
+                        "REG_SZ",
+                        &server,
+                    )
                 {
                     self.last_error = "自动设置系统代理失败：写入注册表失败".to_string();
                 } else {
@@ -161,7 +166,8 @@ impl SystemProxyManager {
         } else {
             self.server.clone()
         };
-        let current_enabled = is_proxy_enabled(read_registry_value(INTERNET_SETTINGS_KEY, "ProxyEnable"));
+        let current_enabled =
+            is_proxy_enabled(read_registry_value(INTERNET_SETTINGS_KEY, "ProxyEnable"));
         let current_server = read_registry_value(INTERNET_SETTINGS_KEY, "ProxyServer")
             .map(|value| value.value)
             .unwrap_or_default();
@@ -189,7 +195,8 @@ impl SystemProxyManager {
             self.remove_backup();
             return;
         };
-        let current_enabled = is_proxy_enabled(read_registry_value(INTERNET_SETTINGS_KEY, "ProxyEnable"));
+        let current_enabled =
+            is_proxy_enabled(read_registry_value(INTERNET_SETTINGS_KEY, "ProxyEnable"));
         let current_server = read_registry_value(INTERNET_SETTINGS_KEY, "ProxyServer")
             .map(|value| value.value)
             .unwrap_or_default();
@@ -315,7 +322,17 @@ pub fn read_registry_value(key: &str, name: &str) -> Option<RegistryValue> {
 fn write_registry_value(key: &str, name: &str, value_type: &str, value: &str) -> bool {
     let normalized = normalize_registry_value(value_type, value);
     let result = hidden_command("reg")
-        .args(["add", key, "/v", name, "/t", value_type, "/d", &normalized, "/f"])
+        .args([
+            "add",
+            key,
+            "/v",
+            name,
+            "/t",
+            value_type,
+            "/d",
+            &normalized,
+            "/f",
+        ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
@@ -344,12 +361,17 @@ fn normalize_registry_value(value_type: &str, value: &str) -> String {
         return value.to_string();
     }
     let trimmed = value.trim();
-    let parsed = if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
+    let parsed = if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
         u32::from_str_radix(hex, 16)
     } else {
         trimmed.parse::<u32>()
     };
-    parsed.map(|value| value.to_string()).unwrap_or_else(|_| "0".to_string())
+    parsed
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 #[cfg(windows)]

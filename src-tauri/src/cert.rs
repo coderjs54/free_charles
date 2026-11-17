@@ -336,7 +336,10 @@ fn sign_leaf(state: &CaState, host: &str) -> Result<(Vec<u8>, Vec<u8>), String> 
         CertificateParams::new(vec![host.to_string()]).map_err(|error| error.to_string())?;
     let mut name = DistinguishedName::new();
     // CN 长度上限 64，超长时截断，SAN 里保留完整域名
-    name.push(DnType::CommonName, host.chars().take(64).collect::<String>());
+    name.push(
+        DnType::CommonName,
+        host.chars().take(64).collect::<String>(),
+    );
     params.distinguished_name = name;
     params.is_ca = IsCa::NoCa;
     params.use_authority_key_identifier_extension = true;

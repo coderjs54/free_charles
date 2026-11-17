@@ -58,10 +58,12 @@ pub fn decode_buffer(buffer: &[u8], content_encoding: Option<&str>) -> DecodedBu
         "deflate" => read_decoder(flate2::read::ZlibDecoder::new(buffer))
             .or_else(|_| read_decoder(flate2::read::DeflateDecoder::new(buffer))),
         "zstd" => Err("暂不支持 zstd 解码".to_string()),
-        _ => return DecodedBuffer {
-            data: buffer.to_vec(),
-            error: None,
-        },
+        _ => {
+            return DecodedBuffer {
+                data: buffer.to_vec(),
+                error: None,
+            }
+        }
     };
 
     match decoded {

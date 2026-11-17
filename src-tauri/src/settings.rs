@@ -86,9 +86,7 @@ fn normalize(input: AppSettings) -> AppSettings {
         auto_system_proxy: input.auto_system_proxy,
         decrypt_https: input.decrypt_https,
         allow_insecure_upstream: input.allow_insecure_upstream,
-        max_body_size: input
-            .max_body_size
-            .clamp(MIN_BODY_LIMIT, MAX_BODY_LIMIT),
+        max_body_size: input.max_body_size.clamp(MIN_BODY_LIMIT, MAX_BODY_LIMIT),
         max_entries: input.max_entries.clamp(MIN_ENTRIES, MAX_ENTRIES),
         record_tunnels: input.record_tunnels,
     }
