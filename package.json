@@ -1,7 +1,7 @@
 {
   "name": "free-charles",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "FreeCharles - a Charles-like HTTP debugging proxy desktop app built with Tauri",
   "type": "module",
   "scripts": {
