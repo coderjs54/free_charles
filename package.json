@@ -1,0 +1,30 @@
+{
+  "name": "free-charles",
+  "private": true,
+  "version": "1.0.0",
+  "description": "FreeCharles - a Charles-like HTTP debugging proxy desktop app built with Tauri",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.0",
+    "@tauri-apps/plugin-dialog": "^2.4.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
+    "@types/node": "^22.10.2",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "sass": "^1.83.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.0.0",
+    "vue-tsc": "^3.0.0"
+  }
+}

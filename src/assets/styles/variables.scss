@@ -1,0 +1,75 @@
+// Design tokens shared by all components
+
+$color-primary: #2563eb;
+$color-primary-hover: #1d4ed8;
+$color-primary-soft: #eef4ff;
+$color-bg: #f2f4f8;
+$color-surface: #ffffff;
+$color-surface-muted: #f8f9fb;
+$color-surface-sunken: #f4f6f9;
+$color-border: #e4e8ee;
+$color-border-strong: #d3d9e2;
+$color-divider: #edf0f4;
+$color-text: #1b2434;
+$color-text-secondary: #566173;
+$color-text-tertiary: #8b94a3;
+$color-text-inverse: #ffffff;
+$color-hover: #f2f6fb;
+$color-selected: #e7f0ff;
+$color-selected-strong: #d7e7ff;
+$color-success: #117e5a;
+$color-success-soft: #e6f6ef;
+$color-info: #0b6fb8;
+$color-info-soft: #e8f3fc;
+$color-warning: #b45309;
+$color-warning-soft: #fdf3e3;
+$color-danger: #c02b2b;
+$color-danger-soft: #fdecec;
+$color-method-get: #1d6fd6;
+$color-method-post: #117e5a;
+$color-method-put: #b45309;
+$color-method-delete: #c02b2b;
+$color-method-patch: #7c3aed;
+$color-method-connect: #64748b;
+$color-json-key: #0b6bcb;
+$color-json-string: #0f7a4c;
+$color-json-number: #b45309;
+$color-json-boolean: #7c3aed;
+$color-json-null: #94a3b8;
+
+$font-ui: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', system-ui, -apple-system, sans-serif;
+$font-mono: 'Cascadia Mono', 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+$font-size-xs: 12px;
+$font-size-sm: 13px;
+$font-size-md: 14px;
+$font-size-lg: 16px;
+
+$spacing-xxs: 2px;
+$spacing-xs: 4px;
+$spacing-sm: 6px;
+$spacing-md: 8px;
+$spacing-lg: 12px;
+$spacing-xl: 16px;
+$spacing-xxl: 24px;
+
+$radius-xs: 3px;
+$radius-sm: 5px;
+$radius-md: 8px;
+$radius-lg: 12px;
+$radius-pill: 999px;
+
+$shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+$shadow-md: 0 8px 24px rgba(16, 24, 40, 0.1);
+$shadow-lg: 0 24px 56px rgba(16, 24, 40, 0.2);
+
+$toolbar-height: 52px;
+$statusbar-height: 28px;
+$row-height: 27px;
+$list-topbar-height: 30px;
+
+$transition-fast: 120ms ease;
+$transition-base: 180ms ease;
+
+$z-context-menu: 1000;
+$z-modal: 1100;
+$z-toast: 1200;
