@@ -64,8 +64,52 @@ async function handleCommand(command: AppCommand): Promise<void> {
     case 'copy-proxy':
       await copyProxyAddress()
       break
+    case 'quit-app':
+      await quitApp()
+      break
     default:
       break
+  }
+}
+
+/**
+ * 应用级快捷键映射。
+ * Windows 下菜单的原生加速键会被 TranslateAccelerator 吞掉（目标句柄是 WebView2 子窗口），
+ * 所以菜单不再注册 accelerator，快捷键统一在这里处理。
+ */
+const SHORTCUTS: Record<string, AppCommand> = {
+  'ctrl+n': 'compose',
+  'ctrl+o': 'open-session',
+  'ctrl+s': 'save-session',
+  'ctrl+shift+e': 'export-har',
+  'ctrl+k': 'clear-session',
+  'ctrl+f': 'focus-filter',
+  'ctrl+shift+r': 'toggle-recording',
+  'ctrl+shift+p': 'toggle-proxy',
+  'ctrl+,': 'open-settings',
+  'ctrl+q': 'quit-app'
+}
+
+function commandFromKeyboard(event: KeyboardEvent): AppCommand | null {
+  if (!event.ctrlKey || event.altKey || event.metaKey) return null
+  const combo = `${event.shiftKey ? 'ctrl+shift+' : 'ctrl+'}${event.key.toLowerCase()}`
+  return SHORTCUTS[combo] ?? null
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  // 弹窗打开时不拦截快捷键，避免在对话框里误触发全局命令
+  if (settingsOpen.value || composeOpen.value || clearOpen.value) return
+  const command = commandFromKeyboard(event)
+  if (!command) return
+  event.preventDefault()
+  void handleCommand(command)
+}
+
+async function quitApp(): Promise<void> {
+  try {
+    await api.quitApp()
+  } catch (error) {
+    push(errorMessage(error), 'error')
   }
 }
 
@@ -199,6 +243,7 @@ onMounted(async () => {
   }
   clampListWidth()
   window.addEventListener('resize', clampListWidth)
+  window.addEventListener('keydown', onKeydown)
 
   unsubscribers = [api.onCommand((command) => void handleCommand(command))]
   await session.init()
@@ -207,6 +252,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   unsubscribers.forEach((unsubscribe) => unsubscribe())
   window.removeEventListener('resize', clampListWidth)
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 

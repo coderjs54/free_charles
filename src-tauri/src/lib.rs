@@ -126,19 +126,9 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     handle.on_menu_event(move |app, event| {
         let id = event.id().as_ref().to_string();
         match id.as_str() {
-            "reload" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.eval("window.location.reload()");
-                }
-            }
-            "devtools" =>
-            {
-                #[cfg(debug_assertions)]
-                if let Some(window) = app.get_webview_window("main") {
-                    window.open_devtools();
-                }
-            }
             "about" => menu::show_about(app),
+            // 走 AppHandle::exit 而不是 PostQuitMessage，确保退出时恢复系统代理
+            "exit" => app.exit(0),
             _ => {
                 let _ = app.emit(EVENT_COMMAND, id);
             }
@@ -178,6 +168,7 @@ pub fn run() {
             commands::compose,
             commands::get_settings,
             commands::get_system_proxy,
+            commands::quit_app,
             commands::get_https_ca_info,
             commands::ensure_https_ca,
             commands::install_https_ca,

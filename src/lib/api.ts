@@ -82,6 +82,7 @@ export const api = {
   ensureHttpsCa: () => invoke<HttpsCaInfo>('ensure_https_ca'),
   installHttpsCa: () => invoke<HttpsCaInfo>('install_https_ca'),
   revealHttpsCa: () => invoke<HttpsCaInfo>('reveal_https_ca'),
+  quitApp: () => invoke<void>('quit_app'),
   copyText: (text: string) => writeText(text),
 
   /** 保存会话：先弹出系统保存对话框，再把路径交给后端写文件 */

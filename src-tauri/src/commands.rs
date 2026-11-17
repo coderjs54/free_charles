@@ -102,6 +102,12 @@ pub fn get_system_proxy(app: AppHandle) -> SystemProxyState {
     app.state::<AppState>().system_proxy().get_status()
 }
 
+/// 前端快捷键触发的退出；与菜单「退出」一致，走 app.exit 以便恢复系统代理
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 #[tauri::command]
 pub fn get_https_ca_info(app: AppHandle) -> HttpsCaInfo {
     app.state::<AppState>().ca.info()

@@ -155,4 +155,5 @@ export type AppCommand =
   | 'toggle-proxy'
   | 'focus-filter'
   | 'copy-proxy'
+  | 'quit-app'
   | 'about'

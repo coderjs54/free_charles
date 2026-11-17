@@ -1,4 +1,9 @@
 //! 构建与 Charles 类似的桌面菜单；菜单项通过事件通知前端执行命令。
+//!
+//! 注意：菜单项不注册原生快捷键（accelerator）。Windows 下 Tauri 会把快捷键消息
+//! 交给 `TranslateAcceleratorW` 处理，但目标句柄是 WebView2 子窗口，WM_COMMAND
+//! 到不了菜单所在的宿主窗口，结果是按键被吞掉且菜单事件不触发。
+//! 因此快捷键统一在前端 keydown 里处理（见 `src/App.vue` 的 SHORTCUTS）。
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager};
@@ -12,36 +17,16 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         "文件",
         true,
         &[
-            &MenuItem::with_id(app, "compose", "新建请求…", true, Some("CmdOrCtrl+N"))?,
+            &MenuItem::with_id(app, "compose", "新建请求", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "open-session", "打开会话…", true, Some("CmdOrCtrl+O"))?,
-            &MenuItem::with_id(app, "save-session", "保存会话…", true, Some("CmdOrCtrl+S"))?,
-            &MenuItem::with_id(
-                app,
-                "export-har",
-                "导出 HAR…",
-                true,
-                Some("CmdOrCtrl+Shift+E"),
-            )?,
+            &MenuItem::with_id(app, "open-session", "打开会话…", true, None::<&str>)?,
+            &MenuItem::with_id(app, "save-session", "保存会话…", true, None::<&str>)?,
+            &MenuItem::with_id(app, "export-har", "导出 HAR…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "open-settings", "设置…", true, Some("CmdOrCtrl+,"))?,
+            &MenuItem::with_id(app, "open-settings", "设置…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, Some("退出"))?,
-        ],
-    )?;
-
-    let edit_menu = Submenu::with_items(
-        app,
-        "编辑",
-        true,
-        &[
-            &PredefinedMenuItem::undo(app, Some("撤销"))?,
-            &PredefinedMenuItem::redo(app, Some("重做"))?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::cut(app, Some("剪切"))?,
-            &PredefinedMenuItem::copy(app, Some("复制"))?,
-            &PredefinedMenuItem::paste(app, Some("粘贴"))?,
-            &PredefinedMenuItem::select_all(app, Some("全选"))?,
+            // 用自定义项而不是 PredefinedMenuItem::quit，确保退出时能恢复系统代理
+            &MenuItem::with_id(app, "exit", "退出", true, None::<&str>)?,
         ],
     )?;
 
@@ -50,16 +35,16 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         "会话",
         true,
         &[
-            &MenuItem::with_id(app, "clear-session", "清空会话", true, Some("CmdOrCtrl+K"))?,
+            &MenuItem::with_id(app, "clear-session", "清空会话", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(
                 app,
                 "toggle-recording",
                 "开始 / 暂停记录",
                 true,
-                Some("CmdOrCtrl+Shift+R"),
+                None::<&str>,
             )?,
-            &MenuItem::with_id(app, "focus-filter", "查找请求", true, Some("CmdOrCtrl+F"))?,
+            &MenuItem::with_id(app, "focus-filter", "查找请求", true, None::<&str>)?,
         ],
     )?;
 
@@ -68,28 +53,10 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         "代理",
         true,
         &[
-            &MenuItem::with_id(
-                app,
-                "toggle-proxy",
-                "启动 / 停止代理",
-                true,
-                Some("CmdOrCtrl+Shift+P"),
-            )?,
+            &MenuItem::with_id(app, "toggle-proxy", "启动 / 停止代理", true, None::<&str>)?,
             &MenuItem::with_id(app, "copy-proxy", "复制代理地址", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "open-settings", "代理设置…", true, None::<&str>)?,
-        ],
-    )?;
-
-    let view_menu = Submenu::with_items(
-        app,
-        "视图",
-        true,
-        &[
-            &MenuItem::with_id(app, "reload", "重新加载", true, Some("CmdOrCtrl+R"))?,
-            &MenuItem::with_id(app, "devtools", "开发者工具", true, Some("F12"))?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::fullscreen(app, Some("全屏"))?,
         ],
     )?;
 
@@ -106,17 +73,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         )?],
     )?;
 
-    let menu = Menu::with_items(
-        app,
-        &[
-            &file_menu,
-            &edit_menu,
-            &session_menu,
-            &proxy_menu,
-            &view_menu,
-            &help_menu,
-        ],
-    )?;
+    let menu = Menu::with_items(app, &[&file_menu, &session_menu, &proxy_menu, &help_menu])?;
     app.set_menu(menu)?;
     Ok(())
 }
