@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 const props = withDefaults(
@@ -13,25 +13,84 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (event: 'close'): void }>()
 
+const modalEl = ref<HTMLElement | null>(null)
+const titleId = useId()
+let previousActive: HTMLElement | null = null
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/** 取当前弹窗内可见、可聚焦的元素，用于 Tab 焦点循环 */
+function getFocusable(): HTMLElement[] {
+  if (!modalEl.value) return []
+  return Array.from(modalEl.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => element.getClientRects().length > 0
+  )
+}
+
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') emit('close')
+  if (event.key === 'Escape') {
+    emit('close')
+    return
+  }
+  if (event.key !== 'Tab') return
+
+  const focusable = getFocusable()
+  if (focusable.length === 0) {
+    event.preventDefault()
+    modalEl.value?.focus()
+    return
+  }
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const active = document.activeElement
+  if (event.shiftKey && (active === first || !modalEl.value?.contains(active))) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (active === last || !modalEl.value?.contains(active))) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
 function onOverlayDown(): void {
   if (props.closeOnOverlay) emit('close')
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+onMounted(() => {
+  previousActive = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  document.addEventListener('keydown', onKeydown)
+  // 子组件通常在自身 onMounted 里聚焦输入框，这里只处理没有初始焦点的情况
+  void nextTick(() => {
+    if (!modalEl.value?.contains(document.activeElement)) {
+      const target = getFocusable()[0] ?? modalEl.value
+      target?.focus()
+    }
+  })
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  if (previousActive?.isConnected) previousActive.focus()
+})
 </script>
 
 <template>
   <Teleport to="body">
     <div class="fc-modal-overlay" @mousedown.self="onOverlayDown">
-      <div class="fc-modal" :style="{ width }" role="dialog" aria-modal="true">
+      <div
+        ref="modalEl"
+        class="fc-modal"
+        :style="{ width }"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="titleId"
+        tabindex="-1"
+      >
         <header class="fc-modal-head">
-          <h2 class="fc-modal-title">{{ title }}</h2>
-          <button class="fc-modal-close" type="button" title="关闭" @click="emit('close')">
+          <h2 :id="titleId" class="fc-modal-title">{{ title }}</h2>
+          <button class="fc-modal-close" type="button" title="关闭" aria-label="关闭" @click="emit('close')">
             <AppIcon name="x" :size="15" />
           </button>
         </header>
@@ -55,7 +114,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   align-items: center;
   justify-content: center;
   padding: $spacing-xxl;
-  background: rgba(15, 23, 42, 0.36);
+  background: $color-modal-overlay;
   backdrop-filter: blur(2px);
   animation: fc-fade-in 120ms ease-out;
 }

@@ -9,6 +9,11 @@ fn is_none<T>(value: &Option<T>) -> bool {
     value.is_none()
 }
 
+/// 序列化时省略值为 false 的布尔字段，保持与前端旧数据结构兼容
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// 列表行使用的轻量元数据，主进程会通过事件增量推送给前端
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -47,6 +52,9 @@ pub struct EntryMeta {
     pub tunnel: bool,
     /// 是否为通过本地 CA 解密后的 HTTPS 请求
     pub decrypted: bool,
+    /// 是否为 WebSocket / Upgrade 连接（仅透传，不解析帧）
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub upgrade: bool,
     #[serde(skip_serializing_if = "is_none")]
     pub note: Option<String>,
     /// 若为重放请求，指向原请求 id
@@ -79,6 +87,9 @@ pub struct BodyView {
     pub base64: Option<String>,
     #[serde(skip_serializing_if = "is_none")]
     pub decode_error: Option<String>,
+    /// 大 Body 被延迟加载，前端需通过 `get_entry_body` 单独拉取
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deferred: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -138,6 +149,8 @@ pub struct AppSettings {
     pub allow_lan: bool,
     /// 启动代理时自动接管 Windows 系统代理，退出时恢复
     pub auto_system_proxy: bool,
+    /// 是否已就「自动接管系统代理」征求过用户同意
+    pub system_proxy_prompted: bool,
     /// 是否启用本地 CA，对 HTTPS 做 TLS 中间人解密
     pub decrypt_https: bool,
     /// 是否忽略代理到上游服务器的 TLS 证书错误（仅调试自签名/内部站点）
@@ -148,6 +161,8 @@ pub struct AppSettings {
     pub max_entries: usize,
     /// 是否记录 HTTPS CONNECT 隧道（只显示提示，不抓内容）
     pub record_tunnels: bool,
+    /// 界面主题：light / dark
+    pub theme: String,
 }
 
 impl Default for AppSettings {
@@ -157,12 +172,15 @@ impl Default for AppSettings {
             auto_start_proxy: true,
             allow_lan: false,
             auto_system_proxy: true,
+            // 首次接管系统代理前需要用户确认
+            system_proxy_prompted: false,
             // HTTPS 解密需要用户主动安装根证书，默认关闭
             decrypt_https: false,
             allow_insecure_upstream: false,
             max_body_size: 5 * 1024 * 1024,
             max_entries: 3000,
             record_tunnels: true,
+            theme: "light".to_string(),
         }
     }
 }
@@ -175,11 +193,13 @@ pub struct AppSettingsPatch {
     pub auto_start_proxy: Option<bool>,
     pub allow_lan: Option<bool>,
     pub auto_system_proxy: Option<bool>,
+    pub system_proxy_prompted: Option<bool>,
     pub decrypt_https: Option<bool>,
     pub allow_insecure_upstream: Option<bool>,
     pub max_body_size: Option<u64>,
     pub max_entries: Option<usize>,
     pub record_tunnels: Option<bool>,
+    pub theme: Option<String>,
 }
 
 /// 本地 HTTPS 解密根证书状态
@@ -241,7 +261,8 @@ pub struct SaveBodyResult {
 }
 
 pub const APP_NAME: &str = "FreeCharles";
-pub const APP_VERSION: &str = "1.0.0";
+/// 构建时由 Cargo 注入，避免版本号在多处硬编码
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const MIN_BODY_LIMIT: u64 = 64 * 1024;
 pub const MAX_BODY_LIMIT: u64 = 50 * 1024 * 1024;
@@ -302,6 +323,7 @@ pub const EVENT_STATUS: &str = "event:status";
 pub const EVENT_SETTINGS: &str = "event:settings";
 pub const EVENT_SYSTEM_PROXY: &str = "event:system-proxy";
 pub const EVENT_COMMAND: &str = "event:command";
+pub const EVENT_ERROR: &str = "event:error";
 
 pub fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};

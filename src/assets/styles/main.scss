@@ -1,3 +1,135 @@
+// 主题色值集中定义在这里，组件通过 variables.scss 中的语义变量引用
+:root {
+  color-scheme: light;
+  --fc-color-primary: #2563eb;
+  --fc-color-primary-hover: #1d4ed8;
+  --fc-color-primary-soft: #eef4ff;
+  --fc-color-bg: #f2f4f8;
+  --fc-color-surface: #ffffff;
+  --fc-color-surface-muted: #f8f9fb;
+  --fc-color-surface-sunken: #f4f6f9;
+  --fc-color-surface-raised: #fbfcfe;
+  --fc-color-border: #e4e8ee;
+  --fc-color-border-strong: #d3d9e2;
+  --fc-color-divider: #edf0f4;
+  --fc-color-text: #1b2434;
+  --fc-color-text-secondary: #566173;
+  --fc-color-text-tertiary: #8b94a3;
+  --fc-color-text-inverse: #ffffff;
+  --fc-color-hover: #f2f6fb;
+  --fc-color-selected: #e7f0ff;
+  --fc-color-selected-strong: #d7e7ff;
+  --fc-color-success: #117e5a;
+  --fc-color-success-soft: #e6f6ef;
+  --fc-color-info: #0b6fb8;
+  --fc-color-info-soft: #e8f3fc;
+  --fc-color-warning: #b45309;
+  --fc-color-warning-soft: #fdf3e3;
+  --fc-color-warning-border: #f0e2c8;
+  --fc-color-danger: #c02b2b;
+  --fc-color-danger-soft: #fdecec;
+  --fc-color-danger-strong: #a82424;
+  --fc-color-danger-border: #f3d2d2;
+  --fc-color-method-get: #1d6fd6;
+  --fc-color-method-post: #117e5a;
+  --fc-color-method-put: #b45309;
+  --fc-color-method-delete: #c02b2b;
+  --fc-color-method-patch: #7c3aed;
+  --fc-color-method-connect: #64748b;
+  --fc-color-json-key: #0b6bcb;
+  --fc-color-json-string: #0f7a4c;
+  --fc-color-json-number: #b45309;
+  --fc-color-json-boolean: #7c3aed;
+  --fc-color-json-null: #94a3b8;
+  --fc-color-code-bg: #eef1f5;
+  --fc-color-code-text: #23303f;
+  --fc-color-code-text-muted: #33506b;
+  --fc-color-scrollbar: #c8d0db;
+  --fc-color-scrollbar-hover: #aeb8c6;
+  --fc-color-switch-track: #d5dbe4;
+  --fc-color-switch-thumb: #ffffff;
+  --fc-color-dot-idle: #b8c0cc;
+  --fc-color-online: #1a9d63;
+  --fc-color-recording: #e5484d;
+  --fc-color-recording-soft: #fce3e3;
+  --fc-color-skeleton-base: #eef1f5;
+  --fc-color-skeleton-shine: #f6f8fb;
+  --fc-color-timeline: #4d8ef0;
+  --fc-color-timeline-soft: #93b7ef;
+  --fc-color-image-bg: #ffffff;
+  --fc-color-checker: #eef1f5;
+  --fc-color-overlay-soft: rgba(255, 255, 255, 0.45);
+  --fc-color-overlay-softer: rgba(255, 255, 255, 0.4);
+  --fc-color-modal-overlay: rgba(15, 23, 42, 0.36);
+  --fc-color-selection: rgba(37, 99, 235, 0.18);
+}
+
+// 暗黑主题只覆盖色值，布局与组件样式保持不变
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --fc-color-primary: #5b9bff;
+  --fc-color-primary-hover: #7db3ff;
+  --fc-color-primary-soft: #1d2c42;
+  --fc-color-bg: #12161d;
+  --fc-color-surface: #1a2029;
+  --fc-color-surface-muted: #161c24;
+  --fc-color-surface-sunken: #10141a;
+  --fc-color-surface-raised: #202833;
+  --fc-color-border: #2a333f;
+  --fc-color-border-strong: #3b4756;
+  --fc-color-divider: #242c36;
+  --fc-color-text: #e6ebf2;
+  --fc-color-text-secondary: #a8b3c1;
+  --fc-color-text-tertiary: #7c8898;
+  --fc-color-text-inverse: #ffffff;
+  --fc-color-hover: #232b36;
+  --fc-color-selected: #1c2f47;
+  --fc-color-selected-strong: #26405e;
+  --fc-color-success: #4cc38a;
+  --fc-color-success-soft: #132b21;
+  --fc-color-info: #5cb3e8;
+  --fc-color-info-soft: #132a3a;
+  --fc-color-warning: #e0a34a;
+  --fc-color-warning-soft: #2f2614;
+  --fc-color-warning-border: #4a3a1c;
+  --fc-color-danger: #f07b7f;
+  --fc-color-danger-soft: #331b1d;
+  --fc-color-danger-strong: #d9535a;
+  --fc-color-danger-border: #4a2528;
+  --fc-color-method-get: #6cb0ff;
+  --fc-color-method-post: #4cc38a;
+  --fc-color-method-put: #e0a34a;
+  --fc-color-method-delete: #f07b7f;
+  --fc-color-method-patch: #b392f0;
+  --fc-color-method-connect: #93a1b5;
+  --fc-color-json-key: #6cb0ff;
+  --fc-color-json-string: #63c99a;
+  --fc-color-json-number: #e0a34a;
+  --fc-color-json-boolean: #b392f0;
+  --fc-color-json-null: #8492a6;
+  --fc-color-code-bg: #131920;
+  --fc-color-code-text: #dbe4ef;
+  --fc-color-code-text-muted: #9fb0c2;
+  --fc-color-scrollbar: #3a4553;
+  --fc-color-scrollbar-hover: #4d5a6b;
+  --fc-color-switch-track: #3a4553;
+  --fc-color-switch-thumb: #e6ebf2;
+  --fc-color-dot-idle: #56616f;
+  --fc-color-online: #4cc38a;
+  --fc-color-recording: #f2555a;
+  --fc-color-recording-soft: #3a1c1e;
+  --fc-color-skeleton-base: #232b36;
+  --fc-color-skeleton-shine: #2b3542;
+  --fc-color-timeline: #5b9bff;
+  --fc-color-timeline-soft: #2c4a75;
+  --fc-color-image-bg: #0f141a;
+  --fc-color-checker: #202833;
+  --fc-color-overlay-soft: rgba(255, 255, 255, 0.08);
+  --fc-color-overlay-softer: rgba(255, 255, 255, 0.06);
+  --fc-color-modal-overlay: rgba(0, 0, 0, 0.6);
+  --fc-color-selection: rgba(91, 155, 255, 0.28);
+}
+
 *,
 *::before,
 *::after {
@@ -53,7 +185,7 @@ ul {
 }
 
 ::selection {
-  background: rgba(37, 99, 235, 0.18);
+  background: $color-selection;
 }
 
 ::-webkit-scrollbar {
@@ -68,12 +200,12 @@ ul {
 ::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 8px;
-  background: #c8d0db;
+  background: $color-scrollbar;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #aeb8c6;
+  background: $color-scrollbar-hover;
   background-clip: content-box;
 }
 

@@ -1,4 +1,4 @@
-//! 请求/响应体解码与展示数据构建（gzip / deflate / br）。
+//! 请求/响应体解码与展示数据构建（gzip / deflate / br / zstd）。
 
 use std::io::Read;
 
@@ -9,6 +9,8 @@ use crate::models::BodyView;
 
 const MAX_DISPLAY_TEXT: usize = 1_500_000;
 const MAX_DISPLAY_BINARY: usize = 1_500_000;
+/// 解压输出上限：防止压缩炸弹把内存耗尽（捕获上限只限制压缩后字节）
+const MAX_DECODED_SIZE: usize = 128 * 1024 * 1024;
 
 const BINARY_MIME_HINTS: &[&str] = &[
     "image/",
@@ -55,9 +57,18 @@ pub fn decode_buffer(buffer: &[u8], content_encoding: Option<&str>) -> DecodedBu
     let decoded = match encoding.as_str() {
         "gzip" | "x-gzip" => read_decoder(flate2::read::GzDecoder::new(buffer)),
         "br" => read_decoder(brotli::Decompressor::new(buffer, 4096)),
-        "deflate" => read_decoder(flate2::read::ZlibDecoder::new(buffer))
-            .or_else(|_| read_decoder(flate2::read::DeflateDecoder::new(buffer))),
-        "zstd" => Err("暂不支持 zstd 解码".to_string()),
+        "deflate" => match read_decoder(flate2::read::ZlibDecoder::new(buffer)) {
+            Ok(data) => Ok(data),
+            // 超过输出上限时直接失败，避免再尝试 raw deflate 造成二次解压
+            Err(DecodeFailure::Limit) => Err(DecodeFailure::Limit),
+            Err(DecodeFailure::Message(_)) => {
+                read_decoder(flate2::read::DeflateDecoder::new(buffer))
+            }
+        },
+        "zstd" => match zstd::stream::read::Decoder::new(buffer) {
+            Ok(decoder) => read_decoder(decoder),
+            Err(error) => Err(DecodeFailure::Message(error.to_string())),
+        },
         _ => {
             return DecodedBuffer {
                 data: buffer.to_vec(),
@@ -68,18 +79,36 @@ pub fn decode_buffer(buffer: &[u8], content_encoding: Option<&str>) -> DecodedBu
 
     match decoded {
         Ok(data) => DecodedBuffer { data, error: None },
-        Err(error) => DecodedBuffer {
+        Err(DecodeFailure::Limit) => DecodedBuffer {
+            data: buffer.to_vec(),
+            error: Some(format!(
+                "内容解压后超过 {} MB 上限，已停止解码",
+                MAX_DECODED_SIZE / 1024 / 1024
+            )),
+        },
+        Err(DecodeFailure::Message(error)) => DecodedBuffer {
             data: buffer.to_vec(),
             error: Some(format!("内容解码失败：{error}")),
         },
     }
 }
 
-fn read_decoder<R: Read>(mut reader: R) -> Result<Vec<u8>, String> {
+/// 解码失败原因：区分「超过输出上限」和普通解码错误，避免上限错误触发 deflate 回退
+enum DecodeFailure {
+    Limit,
+    Message(String),
+}
+
+fn read_decoder<R: Read>(reader: R) -> Result<Vec<u8>, DecodeFailure> {
     let mut output = Vec::new();
-    reader
+    // 多读 1 字节用于判断是否超过上限
+    let mut limited = reader.take(MAX_DECODED_SIZE as u64 + 1);
+    limited
         .read_to_end(&mut output)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| DecodeFailure::Message(error.to_string()))?;
+    if output.len() > MAX_DECODED_SIZE {
+        return Err(DecodeFailure::Limit);
+    }
     Ok(output)
 }
 
@@ -106,6 +135,7 @@ pub fn render_body(
         text: None,
         base64: None,
         decode_error: None,
+        deferred: false,
     };
 
     let Some(buffer) = buffer.filter(|value| !value.is_empty()) else {
@@ -203,4 +233,56 @@ fn decode_text(buffer: &[u8], charset: &str) -> String {
         return text.into_owned();
     }
     String::from_utf8_lossy(buffer).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn gzip(input: &[u8]) -> Vec<u8> {
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(input).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn decodes_supported_encodings() {
+        let text = br#"{"ok":true}"#;
+        let compressed = gzip(text);
+        assert_eq!(
+            decode_buffer(&compressed, Some("gzip")).data.as_slice(),
+            text.as_slice()
+        );
+        assert!(decode_buffer(&compressed, Some("gzip")).error.is_none());
+
+        let zstd_data = zstd::encode_all(&text[..], 3).unwrap();
+        assert_eq!(
+            decode_buffer(&zstd_data, Some("zstd")).data.as_slice(),
+            text.as_slice()
+        );
+        assert!(decode_buffer(&zstd_data, Some("zstd")).error.is_none());
+    }
+
+    #[test]
+    fn keeps_original_bytes_on_decode_error() {
+        let invalid = b"not-a-gzip-stream";
+        let decoded = decode_buffer(invalid, Some("gzip"));
+        assert_eq!(decoded.data.as_slice(), invalid.as_slice());
+        assert!(decoded.error.is_some());
+    }
+
+    #[test]
+    fn renders_text_body_with_deferred_default_false() {
+        let view = render_body(
+            Some(&Bytes::from_static(b"hello")),
+            5,
+            false,
+            "text/plain",
+            None,
+        );
+        assert_eq!(view.kind, "text");
+        assert_eq!(view.text.as_deref(), Some("hello"));
+        assert!(!view.deferred);
+    }
 }

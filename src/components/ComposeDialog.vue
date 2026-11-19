@@ -431,7 +431,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 3px;
   padding: 8px 10px;
-  border: 1px solid rgba(180, 83, 9, 0.2);
+  border: 1px solid $color-warning-border;
   border-radius: $radius-sm;
   background: $color-warning-soft;
   color: $color-warning;
@@ -446,7 +446,7 @@ onMounted(() => {
 
 .fc-compose-error {
   padding: 8px 10px;
-  border: 1px solid rgba(192, 43, 43, 0.2);
+  border: 1px solid $color-danger-border;
   border-radius: $radius-sm;
   background: $color-danger-soft;
   color: $color-danger;

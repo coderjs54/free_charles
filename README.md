@@ -1,7 +1,7 @@
 # FreeCharles (Tauri)
 
 Charles 风格的桌面 HTTP/HTTPS 抓包代理，由 Electron 版本重构为 **Tauri 2 + Rust + Vue 3**。
-界面、交互与功能保持与 Electron 版一致：Structure / Sequence 两种列表视图、请求详情、重放、Compose、会话保存、HAR 导出、Windows 系统代理自动接管，以及可选的 HTTPS 解密（本地 CA 做 TLS 中间人）等。
+界面、交互与功能保持与 Electron 版一致：Structure / Sequence 两种列表视图、请求详情、重放、Compose、会话保存、HAR 导出、Windows 系统代理自动接管（首次生效前请求确认）、浅色/暗黑主题、文件日志与诊断导出，以及可选的 HTTPS 解密（本地 CA 做 TLS 中间人）等。
 
 ## 目录结构
 
@@ -16,8 +16,9 @@ free_charles/
 └─ src-tauri/               # Rust 后端
    ├─ src/proxy.rs          # 抓包代理（hyper 1.x）：HTTP 转发、CONNECT 隧道、HTTPS 中间人、Upgrade 透传
    ├─ src/cert.rs           # 本地 HTTPS 解密 CA：根证书生成 / 加载、按域名签发证书、Windows 信任安装
-   ├─ src/store.rs          # 会话存储（请求/响应体分片、限流截断、导入导出）
-   ├─ src/body.rs           # gzip / deflate / br 解码与文本、二进制展示
+   ├─ src/store.rs          # 会话存储（内存预算、Body 缓存、延迟加载、导入导出）
+   ├─ src/body.rs           # gzip / deflate / br / zstd 解码与文本、二进制展示
+   ├─ src/logger.rs         # 文件日志、轮转与诊断日志读取
    ├─ src/system_proxy.rs   # Windows 系统代理接管与恢复（注册表备份）
    ├─ src/settings.rs       # settings.json 持久化与范围校验
    ├─ src/har.rs            # HAR 1.2 导出
@@ -32,19 +33,22 @@ free_charles/
 npm install          # 安装前端依赖
 npm run app:dev      # 启动 Tauri 开发模式（自动拉起 Vite:1420）
 npm run dev          # 仅启动前端（浏览器里无法使用 IPC）
+npm run test         # 前端单元测试（Vitest）
+cd src-tauri && cargo test   # Rust 单元测试
 ```
 
 ## 构建
 
 ```bash
-npm run app:build            # 生成安装包（NSIS）
+npm run app:build            # 生成安装包（Windows NSIS）
+npx tauri build --bundles appimage  # Linux AppImage（需在 Linux 环境执行）
 npx tauri build --no-bundle  # 只生成可执行文件
 npm run build                # 仅前端类型检查 + 打包
 ```
 
 ## 持续集成与发布
 
-`.github/workflows/ci.yml` 在 `windows-latest` 上依次执行：安装依赖 → 前端类型检查与打包 → `cargo fmt --check` → `cargo clippy --all-targets -- -D warnings` → `tauri build`（NSIS 安装包）→ 上传构建产物。
+`.github/workflows/ci.yml` 在 Windows 上依次执行：安装依赖 → 前端类型检查与打包 → 前端单测 → Rust 单测 → `cargo fmt --check` → `cargo clippy --all-targets -- -D warnings` → `tauri build`（NSIS 安装包）→ 上传构建产物；同时在 Ubuntu 上构建 AppImage。
 
 触发规则：
 
@@ -68,16 +72,18 @@ npm run build                # 仅前端类型检查 + 打包
 3. Actions 自动构建并发布，Release 中会包含：
    - `FreeCharles_<version>_x64-setup.exe`：NSIS 安装包（当前用户安装）
    - `FreeCharles-portable.exe`：免安装可执行文件
+   - `FreeCharles_<version>_amd64.AppImage`：Linux 免安装包
 
 说明：
 
 - 带后缀的标签（如 `v1.1.0-beta.1`）会被标记为 pre-release。
 - 未配置代码签名，用户首次运行安装包时 Windows SmartScreen 会提示「未知发布者」。
-- 目前只构建 Windows x64；如需 macOS / Linux 产物，可把 `windows` job 改成 `strategy.matrix` 并补充对应平台的系统依赖。
+- 当前构建 Windows x64（NSIS）与 Linux x64（AppImage）；macOS 产物可按需增加对应 job 与系统依赖。
+- Linux 下系统代理自动接管与一键安装根证书仍仅 Windows 可用，需要手动配置代理和导入证书。
 
 ## 抓包使用说明
 
-1. 启动应用后默认监听 `127.0.0.1:8888`，并自动接管 Windows 系统代理（可在设置中关闭）。
+1. 启动应用后默认监听 `127.0.0.1:8888`；首次接管 Windows 系统代理前会请求确认，拒绝后可在设置中重新开启。
 2. 浏览器或系统把 HTTP 代理指向该地址后，即可看到 HTTP 请求。
 3. HTTPS 默认以 CONNECT 隧道形式透传（不解密），列表中只显示隧道记录。
 4. 停止代理或退出应用会自动恢复原来的系统代理设置；异常退出后下次启动也会自动恢复。
@@ -98,6 +104,13 @@ npm run build                # 仅前端类型检查 + 打包
 
 ## 与 Electron 版本的差异
 
-- `Content-Encoding: zstd` 暂不支持解码（gzip / deflate / br 均支持）。
 - 请求头名称统一按小写记录（hyper 不保留原始大小写），影响仅限于 Raw 视图展示。
 - 解密证书使用 ECDSA P-256（Electron 版为 RSA 2048），两者都被主流浏览器与系统信任存储接受。
+- 大 Body 在详情中延迟加载；会话内容总内存预算约 256 MB，超出后优先淘汰最旧记录。
+- 单次解压输出上限为 128 MB，避免压缩炸弹耗尽内存。
+
+## 主题与日志
+
+- 工具栏右侧的日/月图标可切换浅色/暗黑主题，选择会持久化到 `settings.json`。
+- 启动、代理启停、系统代理接管和运行期错误会写入应用数据目录下的 `logs/main.log`，超过 2 MB 自动轮转为 `main.1.log`。
+- **帮助 → 打开日志目录** 可直接定位日志；**帮助 → 导出诊断信息…** 会生成包含版本、系统信息、代理状态、设置和最近日志的文本文件。

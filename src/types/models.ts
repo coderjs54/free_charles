@@ -36,6 +36,8 @@ export interface EntryMeta {
   tunnel: boolean
   /** 是否为通过本地 CA 解密后的 HTTPS 请求 */
   decrypted?: boolean
+  /** 是否为 WebSocket / Upgrade 连接（仅透传，不解析帧） */
+  upgrade?: boolean
   note?: string | null
   /** 若为重放请求，指向原请求 id */
   repeatOf?: string | null
@@ -59,6 +61,8 @@ export interface BodyView {
   text?: string | null
   base64?: string | null
   decodeError?: string | null
+  /** 大 Body 被延迟加载，需通过 getEntryBody 单独拉取 */
+  deferred?: boolean
 }
 
 export interface TimingInfo {
@@ -94,6 +98,9 @@ export interface ProxyStatus {
   startedAt?: number | null
 }
 
+/** 界面主题模式 */
+export type ThemeMode = 'light' | 'dark'
+
 export interface AppSettings {
   proxyPort: number
   autoStartProxy: boolean
@@ -101,6 +108,8 @@ export interface AppSettings {
   allowLan: boolean
   /** 启动代理时自动接管 Windows 系统代理，退出时恢复 */
   autoSystemProxy: boolean
+  /** 是否已就「自动接管系统代理」征求过用户同意 */
+  systemProxyPrompted: boolean
   /** 是否启用本地 CA，对 HTTPS 做 TLS 中间人解密 */
   decryptHttps: boolean
   /** 是否忽略代理到上游服务器的 TLS 证书错误 */
@@ -111,6 +120,8 @@ export interface AppSettings {
   maxEntries: number
   /** 是否记录 HTTPS CONNECT 隧道（只显示提示，不抓内容） */
   recordTunnels: boolean
+  /** 界面主题：浅色或暗黑 */
+  theme: ThemeMode
 }
 
 /** Windows 系统代理自动配置状态 */

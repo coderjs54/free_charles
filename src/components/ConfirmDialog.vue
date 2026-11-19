@@ -6,9 +6,10 @@ withDefaults(
     title: string
     message: string
     confirmLabel?: string
+    cancelLabel?: string
     danger?: boolean
   }>(),
-  { confirmLabel: '确定', danger: false }
+  { confirmLabel: '确定', cancelLabel: '取消', danger: false }
 )
 
 const emit = defineEmits<{
@@ -21,7 +22,7 @@ const emit = defineEmits<{
   <AppModal :title="title" width="420px" @close="emit('close')">
     <p class="fc-confirm-message">{{ message }}</p>
     <template #footer>
-      <button class="fc-button" type="button" @click="emit('close')">取消</button>
+      <button class="fc-button" type="button" @click="emit('close')">{{ cancelLabel }}</button>
       <button
         class="fc-button"
         :class="{ 'fc-button--danger': danger, 'fc-button--primary': !danger }"
@@ -75,7 +76,7 @@ const emit = defineEmits<{
 }
 
 .fc-button--danger:hover {
-  border-color: #a82424;
-  background: #a82424;
+  border-color: $color-danger-strong;
+  background: $color-danger-strong;
 }
 </style>

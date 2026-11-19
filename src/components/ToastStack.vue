@@ -70,7 +70,7 @@ const { items, dismiss } = useToast()
 }
 
 .fc-toast--error {
-  border-color: rgba(192, 43, 43, 0.28);
+  border-color: $color-danger-border;
 }
 
 .fc-toast-text {

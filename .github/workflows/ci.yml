@@ -72,6 +72,13 @@ jobs:
       - name: Typecheck and build frontend
         run: npm run build
 
+      - name: Frontend unit tests
+        run: npm run test
+
+      - name: Rust unit tests
+        working-directory: src-tauri
+        run: cargo test --all-targets
+
       - name: Check Rust formatting
         working-directory: src-tauri
         run: cargo fmt --all -- --check
@@ -99,9 +106,75 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  linux:
+    name: Linux build and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            build-essential
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ runner.os }}-linux
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck and build frontend
+        run: npm run build
+
+      - name: Frontend unit tests
+        run: npm run test
+
+      - name: Rust unit tests
+        working-directory: src-tauri
+        run: cargo test --all-targets
+
+      - name: Build AppImage
+        run: npx tauri build --bundles appimage
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp src-tauri/target/release/bundle/appimage/*.AppImage artifacts/
+          ls -lh artifacts
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeCharles-Linux-x64
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: Publish GitHub Release
-    needs: windows
+    needs: [windows, linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -109,17 +182,25 @@ jobs:
       contents: write
 
     steps:
-      - name: Download installer
+      - name: Download Windows installer
         uses: actions/download-artifact@v4
         with:
           name: FreeCharles-Windows-x64
+          path: release
+
+      - name: Download Linux package
+        uses: actions/download-artifact@v4
+        with:
+          name: FreeCharles-Linux-x64
           path: release
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: FreeCharles ${{ github.ref_name }}
-          files: release/*.exe
+          files: |
+            release/*.exe
+            release/*.AppImage
           generate_release_notes: true
           # 带后缀的 tag（如 v1.1.0-beta.1）自动标记为预发布
           prerelease: ${{ contains(github.ref_name, '-') }}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ContextMenuItem } from '../types/ui'
 import AppIcon from './AppIcon.vue'
 
@@ -15,6 +15,9 @@ const emit = defineEmits<{
   (event: 'close'): void
 }>()
 
+const menuEl = ref<HTMLElement | null>(null)
+let previousActive: HTMLElement | null = null
+
 const menuHeight = computed(() => props.items.reduce((sum, item) => sum + (item.separator ? 9 : 30), 12))
 const style = computed(() => {
   const width = 220
@@ -23,6 +26,39 @@ const style = computed(() => {
   const top = Math.min(props.y, window.innerHeight - menuHeight.value - margin)
   return { left: `${Math.max(margin, left)}px`, top: `${Math.max(margin, top)}px`, width: `${width}px` }
 })
+
+/** 打开时聚焦首个可用项，关闭时恢复原焦点 */
+watch(
+  () => props.open,
+  (open) => {
+    if (open) {
+      previousActive = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      void nextTick(() => {
+        menuEl.value?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus()
+      })
+    } else if (previousActive?.isConnected) {
+      previousActive.focus()
+    }
+  }
+)
+
+function getMenuButtons(): HTMLButtonElement[] {
+  return Array.from(menuEl.value?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') ?? [])
+}
+
+/** 支持上下方向键与 Home / End 在菜单项之间移动 */
+function onMenuKeydown(event: KeyboardEvent): void {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  const buttons = getMenuButtons()
+  if (buttons.length === 0) return
+  event.preventDefault()
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+  let next = 0
+  if (event.key === 'ArrowDown') next = index < 0 ? 0 : (index + 1) % buttons.length
+  else if (event.key === 'ArrowUp') next = index < 0 ? buttons.length - 1 : (index - 1 + buttons.length) % buttons.length
+  else if (event.key === 'End') next = buttons.length - 1
+  buttons[next]?.focus()
+}
 
 function onDocumentDown(event: MouseEvent): void {
   if (!props.open) return
@@ -65,14 +101,15 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="fc-context-menu" :style="style">
+    <div v-if="open" ref="menuEl" class="fc-context-menu" :style="style" role="menu" @keydown="onMenuKeydown">
       <template v-for="item in items" :key="item.id">
-        <div v-if="item.separator" class="fc-context-separator" />
+        <div v-if="item.separator" class="fc-context-separator" role="separator" />
         <button
           v-else
           class="fc-context-item"
           :class="{ 'fc-context-item--danger': item.danger, 'fc-context-item--disabled': item.disabled }"
           type="button"
+          role="menuitem"
           :disabled="item.disabled"
           @click="selectItem(item)"
         >

@@ -35,7 +35,8 @@ const canRepeat = computed(
     Boolean(detail.value) &&
     detail.value!.state !== 'pending' &&
     detail.value!.method !== 'CONNECT' &&
-    !detail.value!.tunnel
+    !detail.value!.tunnel &&
+    !detail.value!.upgrade
 )
 
 const tone = computed(() => (detail.value ? statusTone(detail.value) : 'muted'))
@@ -83,13 +84,13 @@ async function repeat(): Promise<void> {
           <span class="fc-detail-url" :title="detail.url" data-testid="detail-url">{{ detail.url }}</span>
           <span class="fc-status-pill" :class="`fc-status-pill--${tone}`">{{ statusFullText(detail) }}</span>
           <div class="fc-detail-actions">
-            <button v-if="canRepeat" class="fc-detail-action" type="button" title="重放请求" @click="repeat">
+            <button v-if="canRepeat" class="fc-detail-action" type="button" title="重放请求" aria-label="重放请求" @click="repeat">
               <AppIcon name="repeat" :size="14" />
             </button>
-            <button class="fc-detail-action" type="button" title="复制 URL" @click="copyUrl">
+            <button class="fc-detail-action" type="button" title="复制 URL" aria-label="复制 URL" @click="copyUrl">
               <AppIcon name="copy" :size="14" />
             </button>
-            <button v-if="canRepeat" class="fc-detail-action" type="button" title="复制为 cURL" @click="copyCurl">
+            <button v-if="canRepeat" class="fc-detail-action" type="button" title="复制为 cURL" aria-label="复制为 cURL" @click="copyCurl">
               <AppIcon name="code" :size="14" />
             </button>
           </div>
@@ -137,20 +138,20 @@ async function repeat(): Promise<void> {
     <div v-else class="fc-detail-empty">
       <div class="fc-empty-art">
         <svg width="168" height="118" viewBox="0 0 168 118" fill="none" aria-hidden="true">
-          <rect x="22" y="52" width="28" height="20" rx="3" stroke="#c7d2e0" stroke-width="1.4" />
-          <path d="M36 42v10" stroke="#c7d2e0" stroke-width="1.4" stroke-linecap="round" />
-          <circle cx="36" cy="38" r="3" fill="#dbe3ee" />
-          <rect x="118" y="52" width="28" height="20" rx="3" stroke="#c7d2e0" stroke-width="1.4" />
-          <path d="M132 42v10" stroke="#c7d2e0" stroke-width="1.4" stroke-linecap="round" />
-          <circle cx="132" cy="38" r="3" fill="#dbe3ee" />
-          <rect x="65" y="43" width="38" height="38" rx="8" fill="#eef4ff" stroke="#a9c6f4" stroke-width="1.4" />
-          <path d="M74 53h6M74 60h20M74 67h14" stroke="#7ea6e6" stroke-width="1.6" stroke-linecap="round" />
-          <path d="M50 62h15M103 62h15" stroke="#b9c7d8" stroke-width="1.4" stroke-dasharray="3 4" />
-          <circle cx="84" cy="26" r="4" fill="#93b7ef" />
-          <path d="M84 30v13" stroke="#b9c7d8" stroke-width="1.4" stroke-dasharray="3 4" />
-          <path d="M50 26h62" stroke="#e1e7ef" stroke-width="1.4" stroke-linecap="round" />
-          <circle cx="50" cy="26" r="2.5" fill="#cfd9e6" />
-          <circle cx="112" cy="26" r="2.5" fill="#cfd9e6" />
+          <rect x="22" y="52" width="28" height="20" rx="3" stroke="var(--fc-color-border-strong)" stroke-width="1.4" />
+          <path d="M36 42v10" stroke="var(--fc-color-border-strong)" stroke-width="1.4" stroke-linecap="round" />
+          <circle cx="36" cy="38" r="3" fill="var(--fc-color-border-strong)" />
+          <rect x="118" y="52" width="28" height="20" rx="3" stroke="var(--fc-color-border-strong)" stroke-width="1.4" />
+          <path d="M132 42v10" stroke="var(--fc-color-border-strong)" stroke-width="1.4" stroke-linecap="round" />
+          <circle cx="132" cy="38" r="3" fill="var(--fc-color-border-strong)" />
+          <rect x="65" y="43" width="38" height="38" rx="8" fill="var(--fc-color-primary-soft)" stroke="var(--fc-color-timeline-soft)" stroke-width="1.4" />
+          <path d="M74 53h6M74 60h20M74 67h14" stroke="var(--fc-color-timeline)" stroke-width="1.6" stroke-linecap="round" />
+          <path d="M50 62h15M103 62h15" stroke="var(--fc-color-border-strong)" stroke-width="1.4" stroke-dasharray="3 4" />
+          <circle cx="84" cy="26" r="4" fill="var(--fc-color-timeline-soft)" />
+          <path d="M84 30v13" stroke="var(--fc-color-border-strong)" stroke-width="1.4" stroke-dasharray="3 4" />
+          <path d="M50 26h62" stroke="var(--fc-color-divider)" stroke-width="1.4" stroke-linecap="round" />
+          <circle cx="50" cy="26" r="2.5" fill="var(--fc-color-border-strong)" />
+          <circle cx="112" cy="26" r="2.5" fill="var(--fc-color-border-strong)" />
         </svg>
       </div>
       <h2 class="fc-detail-empty-title">选择一个请求查看详情</h2>
@@ -357,7 +358,7 @@ async function repeat(): Promise<void> {
 .fc-skeleton-line {
   height: 12px;
   border-radius: 4px;
-  background: linear-gradient(90deg, #eef1f5 25%, #f6f8fb 37%, #eef1f5 63%);
+  background: linear-gradient(90deg, $color-skeleton-base 25%, $color-skeleton-shine 37%, $color-skeleton-base 63%);
   background-size: 400% 100%;
   animation: fc-skeleton 1.4s ease infinite;
 }
@@ -383,7 +384,7 @@ async function repeat(): Promise<void> {
   width: 64px;
   height: 10px;
   border-radius: 4px;
-  background: #eef1f5;
+  background: $color-skeleton-base;
 }
 
 .fc-skeleton-card {

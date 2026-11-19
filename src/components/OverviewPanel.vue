@@ -26,7 +26,8 @@ const canRepeat = computed(
   () =>
     props.detail.state !== 'pending' &&
     props.detail.method !== 'CONNECT' &&
-    !props.detail.tunnel
+    !props.detail.tunnel &&
+    !props.detail.upgrade
 )
 const waitMs = computed(() => props.detail.timings.waitMs ?? 0)
 const receiveMs = computed(() => props.detail.timings.receiveMs ?? 0)
@@ -317,7 +318,7 @@ function copyCurl(): void {
 }
 
 .fc-overview-banner--error {
-  border-color: rgba(192, 43, 43, 0.18);
+  border-color: $color-danger-border;
   background: $color-danger-soft;
   color: $color-danger;
 }
@@ -374,7 +375,15 @@ function copyCurl(): void {
 }
 
 .fc-timing-bar--empty {
-  background: linear-gradient(90deg, #eef1f5 25%, #f7f9fc 25%, #f7f9fc 50%, #eef1f5 50%, #eef1f5 75%, #f7f9fc 75%);
+  background: linear-gradient(
+    90deg,
+    $color-skeleton-base 25%,
+    $color-skeleton-shine 25%,
+    $color-skeleton-shine 50%,
+    $color-skeleton-base 50%,
+    $color-skeleton-base 75%,
+    $color-skeleton-shine 75%
+  );
   background-size: 24px 100%;
   animation: fc-timing-stripes 1.4s linear infinite;
 }
@@ -384,11 +393,11 @@ function copyCurl(): void {
 }
 
 .fc-timing-segment--wait {
-  background: #93b7ef;
+  background: $color-timeline-soft;
 }
 
 .fc-timing-segment--receive {
-  background: #4d8ef0;
+  background: $color-timeline;
 }
 
 .fc-timing-legend {
@@ -426,11 +435,11 @@ function copyCurl(): void {
 }
 
 .fc-timing-dot--wait {
-  background: #93b7ef;
+  background: $color-timeline-soft;
 }
 
 .fc-timing-dot--receive {
-  background: #4d8ef0;
+  background: $color-timeline;
 }
 
 .fc-timing-pending {

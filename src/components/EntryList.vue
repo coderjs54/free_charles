@@ -35,7 +35,7 @@ const {
 } = session
 const { push } = useToast()
 
-const ROW_HEIGHT = 27
+const ROW_HEIGHT = 29
 const collapsed = ref<Set<string>>(new Set())
 const scrollEl = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
@@ -69,7 +69,12 @@ const menuItems = computed<ContextMenuItem[]>(() => {
   if (!entry) return []
   const isTunnel = entry.tunnel || entry.method === 'CONNECT'
   return [
-    { id: 'repeat', label: '重放请求', icon: 'repeat', disabled: isTunnel || entry.state === 'pending' },
+    {
+      id: 'repeat',
+      label: '重放请求',
+      icon: 'repeat',
+      disabled: isTunnel || entry.state === 'pending' || Boolean(entry.upgrade)
+    },
     { id: 'copy-url', label: '复制 URL', icon: 'copy' },
     { id: 'copy-curl', label: '复制为 cURL', icon: 'code', disabled: isTunnel },
     { id: 'copy-body', label: '复制响应体', icon: 'file', disabled: isTunnel || entry.state !== 'complete' },
@@ -280,10 +285,10 @@ onBeforeUnmount(() => {
       </span>
       <div class="fc-list-topbar-spacer" />
       <div v-if="view === 'structure'" class="fc-list-tools">
-        <button class="fc-list-tool" type="button" title="全部展开" @click="expandAll">
+        <button class="fc-list-tool" type="button" title="全部展开" aria-label="全部展开" @click="expandAll">
           <AppIcon name="expand" :size="13" />
         </button>
-        <button class="fc-list-tool" type="button" title="全部折叠" @click="collapseAll">
+        <button class="fc-list-tool" type="button" title="全部折叠" aria-label="全部折叠" @click="collapseAll">
           <AppIcon name="collapse" :size="13" />
         </button>
       </div>
@@ -306,7 +311,15 @@ onBeforeUnmount(() => {
       <span class="fc-list-header-cell fc-list-align-right">Duration</span>
     </div>
 
-    <div ref="scrollEl" class="fc-list-scroll" tabindex="0" @scroll="onScroll" @keydown="onKeydown">
+    <div
+      ref="scrollEl"
+      class="fc-list-scroll"
+      tabindex="0"
+      :role="view === 'structure' ? 'tree' : 'list'"
+      aria-label="请求列表"
+      @scroll="onScroll"
+      @keydown="onKeydown"
+    >
       <div v-if="entries.length === 0" class="fc-list-empty">
         <div class="fc-list-empty-icon">
           <AppIcon name="globe" :size="24" />
@@ -352,7 +365,12 @@ onBeforeUnmount(() => {
               v-if="row.kind === 'folder'"
               class="fc-folder-row"
               :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+              role="treeitem"
+              :aria-expanded="!row.collapsed"
+              tabindex="0"
               @click="toggleFolder(row.key)"
+              @keydown.enter.prevent.stop="toggleFolder(row.key)"
+              @keydown.space.prevent.stop="toggleFolder(row.key)"
             >
               <span class="fc-folder-chevron" :class="{ 'fc-folder-chevron--collapsed': row.collapsed }">
                 <AppIcon name="chevron-down" :size="11" />
@@ -371,6 +389,9 @@ onBeforeUnmount(() => {
                 view === 'structure' ? 'fc-entry-row--structure' : 'fc-entry-row--sequence',
                 { 'fc-entry-row--selected': row.entry.id === selectedId, 'fc-entry-row--error': row.entry.state === 'error' }
               ]"
+              :role="view === 'structure' ? 'treeitem' : 'listitem'"
+              :aria-selected="view === 'structure' ? row.entry.id === selectedId : undefined"
+              :aria-current="view === 'sequence' && row.entry.id === selectedId ? 'true' : undefined"
               :data-entry-id="row.entry.id"
               :title="row.entry.url"
               @click="selectRow(row.entry)"
@@ -454,7 +475,7 @@ onBeforeUnmount(() => {
 
 .fc-list-title {
   color: $color-text-secondary;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -462,7 +483,7 @@ onBeforeUnmount(() => {
 
 .fc-list-count {
   color: $color-text-tertiary;
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .fc-list-topbar-spacer {
@@ -494,7 +515,7 @@ onBeforeUnmount(() => {
   border-radius: $radius-pill;
   background: $color-danger-soft;
   color: $color-danger;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 600;
 }
 
@@ -561,8 +582,8 @@ onBeforeUnmount(() => {
   gap: 5px;
   height: $row-height;
   padding-right: 10px;
-  border-bottom: 1px solid #f4f6f9;
-  background: #fbfcfe;
+  border-bottom: 1px solid $color-divider;
+  background: $color-surface-raised;
   color: $color-text-secondary;
   font-size: 12.5px;
   font-weight: 550;
@@ -586,7 +607,7 @@ onBeforeUnmount(() => {
 
 .fc-folder-icon {
   display: flex;
-  color: #94a0b0;
+  color: $color-text-tertiary;
 }
 
 .fc-folder-name {
@@ -599,7 +620,7 @@ onBeforeUnmount(() => {
 .fc-folder-count {
   color: $color-text-tertiary;
   font-family: $font-mono;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 500;
 }
 
@@ -609,7 +630,7 @@ onBeforeUnmount(() => {
   align-items: center;
   height: $row-height;
   padding: 0 10px;
-  border-bottom: 1px solid #f4f6f9;
+  border-bottom: 1px solid $color-divider;
   background: $color-surface;
   color: $color-text;
   font-size: 12.5px;
@@ -649,7 +670,7 @@ onBeforeUnmount(() => {
 
 .fc-entry-icon {
   display: flex;
-  color: #9aa6b5;
+  color: $color-text-tertiary;
 }
 
 .fc-entry-icon--tunnel {
@@ -675,7 +696,7 @@ onBeforeUnmount(() => {
 .fc-method {
   overflow: hidden;
   font-family: $font-mono;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-overflow: ellipsis;
@@ -737,7 +758,7 @@ onBeforeUnmount(() => {
 
 .fc-time {
   color: $color-text-tertiary;
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .fc-entry-url {
@@ -809,7 +830,7 @@ onBeforeUnmount(() => {
   background: $color-surface-muted;
   color: $color-text-secondary;
   font-family: $font-mono;
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .fc-list-empty-actions {

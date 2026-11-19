@@ -6,6 +6,7 @@ import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plug
 import type {
   AppCommand,
   AppSettings,
+  BodyView,
   ComposePayload,
   EntryDetail,
   EntryMeta,
@@ -72,7 +73,10 @@ export const api = {
   listEntries: () => invoke<EntryMeta[]>('list_entries'),
   clearSession: () => invoke<void>('clear_session'),
   removeEntry: (id: string) => invoke<void>('remove_entry', { id }),
-  getEntry: (id: string) => invoke<EntryDetail | null>('get_entry', { id }),
+  getEntry: (id: string, lazyBodies = false) =>
+    invoke<EntryDetail | null>('get_entry', { id, lazyBodies }),
+  getEntryBody: (id: string, side: 'request' | 'response') =>
+    invoke<BodyView | null>('get_entry_body', { id, side }),
   repeatEntry: (id: string) => invoke<EntryMeta>('repeat_entry', { id }),
   compose: (payload: ComposePayload) => invoke<EntryMeta>('compose', { payload }),
   getSettings: () => invoke<AppSettings>('get_settings'),
@@ -136,5 +140,6 @@ export const api = {
   onStatus: (callback: (status: ProxyStatus) => void) => subscribe('event:status', callback),
   onSettings: (callback: (settings: AppSettings) => void) => subscribe('event:settings', callback),
   onSystemProxy: (callback: (state: SystemProxyState) => void) => subscribe('event:system-proxy', callback),
-  onCommand: (callback: (command: AppCommand) => void) => subscribe('event:command', callback)
+  onCommand: (callback: (command: AppCommand) => void) => subscribe('event:command', callback),
+  onError: (callback: (message: string) => void) => subscribe('event:error', callback)
 }

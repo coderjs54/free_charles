@@ -4,6 +4,7 @@ mod body;
 mod cert;
 mod commands;
 mod har;
+mod logger;
 mod menu;
 mod models;
 mod proxy;
@@ -16,7 +17,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
 
 use crate::cert::HttpsCa;
-use crate::models::{SystemProxyState, EVENT_COMMAND, EVENT_SYSTEM_PROXY};
+use crate::models::{
+    SystemProxyState, APP_VERSION, EVENT_COMMAND, EVENT_ERROR, EVENT_SYSTEM_PROXY,
+};
 use crate::proxy::{CaptureProxy, ProxyOptions};
 use crate::settings::SettingsStore;
 use crate::store::SessionStore;
@@ -51,7 +54,13 @@ impl AppState {
     }
 }
 
-/// 根据「代理是否运行 + 是否允许自动接管」同步 Windows 系统代理
+/// 把运行期错误同时写入控制台并广播给界面，避免只写日志导致用户无从排查
+pub fn report_error(app: &AppHandle, message: &str) {
+    logger::log_error(message);
+    let _ = app.emit(EVENT_ERROR, message.to_string());
+}
+
+/// 根据「代理是否运行 + 是否允许自动接管 + 是否已征得同意」同步 Windows 系统代理
 pub fn sync_system_proxy(app: &AppHandle) -> SystemProxyState {
     let Some(state) = app.try_state::<AppState>() else {
         return SystemProxyState {
@@ -62,11 +71,11 @@ pub fn sync_system_proxy(app: &AppHandle) -> SystemProxyState {
         };
     };
 
-    let auto_system_proxy = state.settings().get().auto_system_proxy;
+    let settings = state.settings().get();
     let status = state.proxy.status();
     let result = {
         let mut manager = state.system_proxy();
-        if auto_system_proxy && status.running {
+        if settings.auto_system_proxy && settings.system_proxy_prompted && status.running {
             manager.apply(status.port)
         } else {
             manager.restore()
@@ -75,7 +84,11 @@ pub fn sync_system_proxy(app: &AppHandle) -> SystemProxyState {
 
     let _ = app.emit(EVENT_SYSTEM_PROXY, &result);
     if let Some(error) = &result.error {
-        eprintln!("[FreeCharles] {error}");
+        report_error(app, error);
+    } else if result.active {
+        logger::log_info(&format!("系统代理已接管：{}", result.server));
+    } else {
+        logger::log_info("系统代理已恢复");
     }
     result
 }
@@ -84,6 +97,13 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let data_dir = app.path().app_data_dir()?;
     std::fs::create_dir_all(&data_dir)?;
+    logger::init(data_dir.join("logs"));
+    logger::log_info(&format!(
+        "应用启动 v{APP_VERSION} · Tauri {} · {} {}",
+        tauri::VERSION,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    ));
 
     let settings_store = SettingsStore::new(data_dir.join("settings.json"));
     let mut system_proxy = SystemProxyManager::new(data_dir.join("system-proxy-backup.json"));
@@ -127,6 +147,8 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let id = event.id().as_ref().to_string();
         match id.as_str() {
             "about" => menu::show_about(app),
+            "open-logs" => menu::open_logs(app),
+            "export-diagnostics" => menu::export_diagnostics(app),
             // 走 AppHandle::exit 而不是 PostQuitMessage，确保退出时恢复系统代理
             "exit" => app.exit(0),
             _ => {
@@ -136,9 +158,10 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     if settings.auto_start_proxy {
+        let error_handle = handle.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(error) = proxy.start().await {
-                eprintln!("[FreeCharles] auto start proxy failed: {error}");
+                report_error(&error_handle, &format!("自动启动代理失败：{error}"));
             }
         });
     }
@@ -164,6 +187,7 @@ pub fn run() {
             commands::clear_session,
             commands::remove_entry,
             commands::get_entry,
+            commands::get_entry_body,
             commands::repeat_entry,
             commands::compose,
             commands::get_settings,

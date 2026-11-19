@@ -7,9 +7,11 @@
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager};
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, FilePath, MessageDialogKind};
 
+use crate::logger;
 use crate::models::{APP_NAME, APP_VERSION};
+use crate::AppState;
 
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let file_menu = Submenu::with_items(
@@ -64,18 +66,120 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         app,
         "帮助",
         true,
-        &[&MenuItem::with_id(
-            app,
-            "about",
-            format!("关于 {APP_NAME}"),
-            true,
-            None::<&str>,
-        )?],
+        &[
+            &MenuItem::with_id(app, "open-logs", "打开日志目录", true, None::<&str>)?,
+            &MenuItem::with_id(
+                app,
+                "export-diagnostics",
+                "导出诊断信息…",
+                true,
+                None::<&str>,
+            )?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "about", format!("关于 {APP_NAME}"), true, None::<&str>)?,
+        ],
     )?;
 
     let menu = Menu::with_items(app, &[&file_menu, &session_menu, &proxy_menu, &help_menu])?;
     app.set_menu(menu)?;
     Ok(())
+}
+
+/// 打开日志目录；未初始化日志时给出提示
+pub fn open_logs(app: &AppHandle) {
+    match logger::directory() {
+        Some(path) => logger::open_directory(&path),
+        None => {
+            app.dialog()
+                .message("日志目录尚未初始化")
+                .title("打开日志目录")
+                .kind(MessageDialogKind::Warning)
+                .show(|_| {});
+        }
+    }
+}
+
+/// 导出包含版本、系统信息、代理状态、设置与最近日志的诊断文本
+pub fn export_diagnostics(app: &AppHandle) {
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let app_handle = app.clone();
+    app.dialog()
+        .file()
+        .set_title("导出诊断信息")
+        .set_file_name(format!("freecharles-diagnostics-{stamp}.txt"))
+        .add_filter("文本文件", &["txt"])
+        .save_file(move |path| {
+            let Some(path) = path.and_then(|value: FilePath| value.into_path().ok()) else {
+                return;
+            };
+            let content = build_diagnostics(&app_handle);
+            match std::fs::write(&path, content) {
+                Ok(()) => {
+                    app_handle
+                        .dialog()
+                        .message(format!("诊断信息已导出到：{}", path.display()))
+                        .title("导出诊断信息")
+                        .kind(MessageDialogKind::Info)
+                        .show(|_| {});
+                }
+                Err(error) => {
+                    app_handle
+                        .dialog()
+                        .message(format!("导出失败：{error}"))
+                        .title("导出诊断信息")
+                        .kind(MessageDialogKind::Error)
+                        .show(|_| {});
+                }
+            }
+        });
+}
+
+fn build_diagnostics(app: &AppHandle) -> String {
+    let state = app.try_state::<AppState>();
+    let proxy_status = state
+        .as_ref()
+        .map(|value| value.proxy.status())
+        .map(|value| serde_json::to_string_pretty(&value).unwrap_or_default())
+        .unwrap_or_else(|| "(状态未知)".to_string());
+    let settings = state
+        .as_ref()
+        .map(|value| value.settings().get())
+        .map(|value| serde_json::to_string_pretty(&value).unwrap_or_default())
+        .unwrap_or_else(|| "(设置未知)".to_string());
+    let logs = logger::read_diagnostic_logs();
+    [
+        format!("{APP_NAME} {APP_VERSION} 诊断信息"),
+        format!(
+            "导出时间: {}",
+            chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f%:z")
+        ),
+        format!(
+            "系统: {} {} (Tauri {})",
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            tauri::VERSION
+        ),
+        format!(
+            "日志目录: {}",
+            logger::directory()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "(未初始化)".to_string())
+        ),
+        String::new(),
+        "== 代理状态 ==".to_string(),
+        proxy_status,
+        String::new(),
+        "== 当前设置 ==".to_string(),
+        settings,
+        String::new(),
+        "== 最近日志 ==".to_string(),
+        if logs.is_empty() {
+            "(暂无日志)".to_string()
+        } else {
+            logs
+        },
+    ]
+    .join("\n")
 }
 
 /// 关于对话框：展示版本、能力说明与当前 HTTPS 解密状态

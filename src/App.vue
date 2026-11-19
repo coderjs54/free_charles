@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { api } from './lib/api'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { AppCommand, EntryMeta } from './types/models'
+import type { AppCommand, EntryMeta, ThemeMode } from './types/models'
 import { useSession } from './stores/useSession'
 import { useToast } from './stores/useToast'
 import { errorMessage } from './utils/error'
@@ -15,13 +15,14 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import ToastStack from './components/ToastStack.vue'
 
 const session = useSession()
-const { proxyStatus, proxyAddress, stats, filter, systemProxyState } = session
+const { proxyStatus, proxyAddress, stats, filter, settings, systemProxyState } = session
 const { push } = useToast()
 
 const toolbarRef = ref<InstanceType<typeof AppToolbar> | null>(null)
 const settingsOpen = ref(false)
 const composeOpen = ref(false)
 const clearOpen = ref(false)
+const systemProxyPromptOpen = ref(false)
 const listWidth = ref(700)
 const lastProxyError = ref('')
 const lastSystemProxyError = ref('')
@@ -31,6 +32,66 @@ const recordingLabel = computed(() => {
   if (!proxyStatus.value.running) return '未抓包'
   return proxyStatus.value.recording ? '记录中' : '已暂停'
 })
+
+/** 把主题写到根节点，CSS 变量会随 data-theme 切换 */
+function applyTheme(theme: ThemeMode): void {
+  document.documentElement.dataset.theme = theme
+  try {
+    // 缓存一份主题，下次启动时可在设置异步加载前先应用，避免闪白
+    localStorage.setItem('freecharles:theme', theme)
+  } catch {
+    // localStorage 不可用时忽略，主题仍会在设置加载后应用
+  }
+}
+
+try {
+  if (localStorage.getItem('freecharles:theme') === 'dark') {
+    document.documentElement.dataset.theme = 'dark'
+  }
+} catch {
+  // ignore
+}
+
+watch(
+  () => settings.value?.theme,
+  (theme) => {
+    if (theme) applyTheme(theme)
+  },
+  { immediate: true }
+)
+
+/** 首次在 Windows 上运行且代理已启动时，先询问是否允许接管系统代理 */
+const needsSystemProxyConsent = computed(
+  () =>
+    systemProxyState.value.supported &&
+    Boolean(settings.value?.autoSystemProxy) &&
+    settings.value?.systemProxyPrompted === false &&
+    proxyStatus.value.running
+)
+
+watch(needsSystemProxyConsent, (needs) => {
+  if (needs) systemProxyPromptOpen.value = true
+})
+
+async function allowSystemProxy(): Promise<void> {
+  systemProxyPromptOpen.value = false
+  try {
+    await session.updateSettings({ autoSystemProxy: true, systemProxyPrompted: true })
+    push('已开启系统代理接管', 'success')
+  } catch (error) {
+    push(errorMessage(error), 'error')
+  }
+}
+
+async function declineSystemProxy(): Promise<void> {
+  systemProxyPromptOpen.value = false
+  try {
+    await session.updateSettings({ autoSystemProxy: false, systemProxyPrompted: true })
+    push('已跳过系统代理接管，可稍后在代理设置中开启')
+  } catch (error) {
+    push(errorMessage(error), 'error')
+  }
+}
 
 async function handleCommand(command: AppCommand): Promise<void> {
   switch (command) {
@@ -308,8 +369,6 @@ onBeforeUnmount(() => {
       </span>
       <span class="fc-statusbar-spacer" />
       <span class="fc-status-item fc-status-item--muted">HTTP 抓包 · HTTPS 可解密</span>
-      <span class="fc-status-divider" />
-      <span class="fc-status-item fc-status-item--muted">FreeCharles 1.0.0</span>
     </footer>
 
     <SettingsDialog v-if="settingsOpen" @close="settingsOpen = false" />
@@ -322,6 +381,15 @@ onBeforeUnmount(() => {
       danger
       @confirm="confirmClear"
       @close="clearOpen = false"
+    />
+    <ConfirmDialog
+      v-if="systemProxyPromptOpen"
+      title="允许接管 Windows 系统代理？"
+      message="开启后 FreeCharles 会自动把系统代理指向本机，浏览器和其他遵循系统代理的程序无需手动配置；停止代理或退出应用时会恢复原设置。你也可以稍后在「代理设置」中修改。"
+      confirm-label="允许接管"
+      cancel-label="暂不接管"
+      @confirm="allowSystemProxy"
+      @close="declineSystemProxy"
     />
     <ToastStack />
   </div>
@@ -342,7 +410,7 @@ onBeforeUnmount(() => {
   gap: $spacing-md;
   min-height: 34px;
   padding: 5px $spacing-lg;
-  border-bottom: 1px solid rgba(180, 83, 9, 0.18);
+  border-bottom: 1px solid $color-warning-border;
   background: $color-warning-soft;
   color: $color-warning;
   font-size: 11.5px;
@@ -351,7 +419,7 @@ onBeforeUnmount(() => {
 }
 
 .fc-proxy-alert--error {
-  border-bottom-color: rgba(192, 43, 43, 0.18);
+  border-bottom-color: $color-danger-border;
   background: $color-danger-soft;
   color: $color-danger;
 }
@@ -380,7 +448,7 @@ onBeforeUnmount(() => {
 
 .fc-proxy-alert-button:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.45);
+  background: $color-overlay-soft;
 }
 
 .fc-proxy-alert-button--ghost {
@@ -390,7 +458,7 @@ onBeforeUnmount(() => {
 
 .fc-proxy-alert-button--ghost:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.4);
+  background: $color-overlay-softer;
 }
 
 .fc-workspace {
@@ -478,12 +546,12 @@ onBeforeUnmount(() => {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #1a9d63;
+  background: $color-online;
   box-shadow: 0 0 0 2px rgba(26, 157, 99, 0.13);
 }
 
 .fc-status-proxy--stopped .fc-status-dot {
-  background: #b8c0cc;
+  background: $color-dot-idle;
   box-shadow: none;
 }
 

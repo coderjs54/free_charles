@@ -52,7 +52,7 @@ withDefaults(defineProps<{ headers: HeaderPair[]; emptyText?: string }>(), {
 }
 
 .fc-headers-row:not(.fc-headers-row--head):hover {
-  background: #fafbfd;
+  background: $color-surface-muted;
 }
 
 .fc-header-cell {

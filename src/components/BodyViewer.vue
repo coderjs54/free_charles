@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { api } from '../lib/api'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { BodyView } from '../types/models'
 import { useToast } from '../stores/useToast'
 import { errorMessage } from '../utils/error'
@@ -22,37 +22,83 @@ const showHexForImage = ref(false)
 const htmlPreview = ref(false)
 const saving = ref(false)
 
-const effectiveMime = computed(() => props.body.mime || props.mime || '')
+// 大 Body 由父级传入 deferred 占位，组件挂载后单独拉取完整内容
+const loadedBody = ref<BodyView | null>(null)
+const loadingBody = ref(false)
+const bodyLoadError = ref('')
+const activeBody = computed<BodyView>(() => loadedBody.value ?? props.body)
+let bodyToken = 0
+
+const effectiveMime = computed(() => activeBody.value.mime || props.mime || '')
 const isJson = computed(() => {
-  if (props.body.kind !== 'text') return false
+  if (activeBody.value.kind !== 'text') return false
   const mime = effectiveMime.value.toLowerCase()
-  return mime.includes('json') || /^\s*[{[][\s\S]*$/.test(props.body.text ?? '')
+  return mime.includes('json') || /^\s*[{[][\s\S]*$/.test(activeBody.value.text ?? '')
 })
-const json = computed(() => prettyJson(props.body.text ?? ''))
-const formattedText = computed(() => (isJson.value && jsonMode.value === 'pretty' && json.value.ok ? json.value.text : props.body.text ?? ''))
+const json = computed(() => prettyJson(activeBody.value.text ?? ''))
+const formattedText = computed(() =>
+  isJson.value && jsonMode.value === 'pretty' && json.value.ok ? json.value.text : activeBody.value.text ?? ''
+)
 const highlighted = computed(() =>
   isJson.value && jsonMode.value === 'pretty' && json.value.ok ? highlightJson(formattedText.value) : ''
 )
-const isHtml = computed(() => props.body.kind === 'text' && effectiveMime.value.toLowerCase().includes('html'))
-const isImage = computed(() => props.body.kind === 'binary' && effectiveMime.value.toLowerCase().startsWith('image/') && Boolean(props.body.base64))
-const imageUrl = computed(() => (isImage.value && props.body.base64 ? toDataUrl(effectiveMime.value, props.body.base64) : ''))
-const hexText = computed(() => (props.body.base64 ? formatHexDump(props.body.base64) : ''))
-const showText = computed(() => props.body.kind === 'text')
+const isHtml = computed(() => activeBody.value.kind === 'text' && effectiveMime.value.toLowerCase().includes('html'))
+const isImage = computed(
+  () =>
+    activeBody.value.kind === 'binary' &&
+    effectiveMime.value.toLowerCase().startsWith('image/') &&
+    Boolean(activeBody.value.base64)
+)
+const imageUrl = computed(() =>
+  isImage.value && activeBody.value.base64 ? toDataUrl(effectiveMime.value, activeBody.value.base64) : ''
+)
+const hexText = computed(() => (activeBody.value.base64 ? formatHexDump(activeBody.value.base64) : ''))
+const showText = computed(() => activeBody.value.kind === 'text')
 const showImage = computed(() => isImage.value && !showHexForImage.value)
-const showHex = computed(() => props.body.kind === 'binary' && !showImage.value)
+const showHex = computed(() => activeBody.value.kind === 'binary' && !showImage.value)
 
 const emptyText = computed(() => {
-  if (props.body.size > 0 && !props.body.available) return '该内容未被捕获'
+  if (activeBody.value.size > 0 && !activeBody.value.available) return '该内容未被捕获'
   return props.side === 'request' ? '此请求没有请求体' : '此响应没有内容'
 })
 
+/** 拉取延迟加载的大 Body */
+async function loadDeferredBody(): Promise<void> {
+  if (!props.body.deferred) return
+  const token = ++bodyToken
+  loadingBody.value = true
+  bodyLoadError.value = ''
+  try {
+    const result = await api.getEntryBody(props.entryId, props.side)
+    if (token !== bodyToken) return
+    if (result) loadedBody.value = result
+    else bodyLoadError.value = '内容已不存在'
+  } catch (error) {
+    if (token === bodyToken) bodyLoadError.value = errorMessage(error)
+  } finally {
+    if (token === bodyToken) loadingBody.value = false
+  }
+}
+
+watch(
+  () => [props.entryId, props.side, props.body.deferred] as const,
+  () => {
+    bodyToken += 1
+    loadedBody.value = null
+    bodyLoadError.value = ''
+    loadingBody.value = false
+    if (props.body.deferred) void loadDeferredBody()
+  },
+  { immediate: true }
+)
+
 async function copyBody(): Promise<void> {
-  if (props.body.kind !== 'text' || !props.body.text) {
+  if (activeBody.value.kind !== 'text' || !activeBody.value.text) {
     push('二进制内容无法直接复制，请使用保存', 'error')
     return
   }
   try {
-    await api.copyText(props.body.text)
+    await api.copyText(activeBody.value.text)
     push('已复制内容', 'success')
   } catch (error) {
     push(errorMessage(error), 'error')
@@ -78,10 +124,10 @@ async function saveBody(): Promise<void> {
     <div class="fc-body-toolbar">
       <div class="fc-body-meta">
         <span class="fc-body-mime">{{ effectiveMime || 'unknown' }}</span>
-        <span v-if="body.encoding" class="fc-body-badge">{{ body.encoding }}</span>
-        <span v-if="body.truncated" class="fc-body-badge fc-body-badge--warning">已截断</span>
+        <span v-if="activeBody.encoding" class="fc-body-badge">{{ activeBody.encoding }}</span>
+        <span v-if="activeBody.truncated" class="fc-body-badge fc-body-badge--warning">已截断</span>
         <span class="fc-body-size">
-          {{ formatBytes(body.size) }}<template v-if="body.encoding"> · 解码后 {{ formatBytes(body.decodedSize) }}</template>
+          {{ formatBytes(activeBody.size) }}<template v-if="activeBody.encoding"> · 解码后 {{ formatBytes(activeBody.decodedSize) }}</template>
         </span>
       </div>
 
@@ -146,20 +192,31 @@ async function saveBody(): Promise<void> {
           :class="{ 'fc-body-tool--active': wrap }"
           type="button"
           title="自动换行"
+          aria-label="自动换行"
           @click="wrap = !wrap"
         >
           <AppIcon name="wrap" :size="14" />
         </button>
-        <button class="fc-body-tool" type="button" title="复制内容" :disabled="body.kind !== 'text'" @click="copyBody">
+        <button class="fc-body-tool" type="button" title="复制内容" aria-label="复制内容" :disabled="activeBody.kind !== 'text'" @click="copyBody">
           <AppIcon name="copy" :size="14" />
         </button>
-        <button class="fc-body-tool" type="button" title="保存内容" :disabled="!body.available || saving" @click="saveBody">
+        <button class="fc-body-tool" type="button" title="保存内容" aria-label="保存内容" :disabled="!activeBody.available || saving" @click="saveBody">
           <AppIcon name="download" :size="14" />
         </button>
       </div>
     </div>
 
-    <div v-if="body.kind === 'empty'" class="fc-body-empty">
+    <div v-if="loadingBody" class="fc-body-empty">
+      <span class="fc-body-empty-icon"><AppIcon name="file" :size="20" /></span>
+      <span>正在加载内容…</span>
+    </div>
+
+    <div v-else-if="bodyLoadError" class="fc-body-empty">
+      <span class="fc-body-empty-icon"><AppIcon name="alert" :size="20" /></span>
+      <span>{{ bodyLoadError }}</span>
+    </div>
+
+    <div v-else-if="activeBody.kind === 'empty'" class="fc-body-empty">
       <span class="fc-body-empty-icon"><AppIcon name="file" :size="20" /></span>
       <span>{{ emptyText }}</span>
     </div>
@@ -169,7 +226,7 @@ async function saveBody(): Promise<void> {
         <iframe
           v-if="isHtml && htmlPreview"
           class="fc-body-frame"
-          :srcdoc="body.text ?? ''"
+          :srcdoc="activeBody.text ?? ''"
           sandbox=""
           title="HTML 预览"
         />
@@ -185,17 +242,17 @@ async function saveBody(): Promise<void> {
           class="fc-body-code"
           :class="{ 'fc-body-code--wrap': wrap }"
           data-testid="body-text"
-        >{{ body.text }}</pre>
+        >{{ activeBody.text }}</pre>
       </template>
 
       <img v-if="showImage" class="fc-body-image" :src="imageUrl" alt="响应图片预览" />
       <pre v-if="showHex" class="fc-body-code fc-body-code--hex" data-testid="body-text">{{ hexText }}</pre>
 
-      <div v-if="body.truncated" class="fc-body-notice">
-        内容超过捕获上限，仅显示前 {{ formatBytes(body.capturedSize) }}。可在设置中调整单个 Body 上限。
+      <div v-if="activeBody.truncated" class="fc-body-notice">
+        内容超过捕获上限，仅显示前 {{ formatBytes(activeBody.capturedSize) }}。可在设置中调整单个 Body 上限。
       </div>
-      <div v-if="body.textTruncated" class="fc-body-notice">内容过长，展示文本已截断。</div>
-      <div v-if="body.decodeError" class="fc-body-notice fc-body-notice--error">{{ body.decodeError }}</div>
+      <div v-if="activeBody.textTruncated" class="fc-body-notice">内容过长，展示文本已截断。</div>
+      <div v-if="activeBody.decodeError" class="fc-body-notice fc-body-notice--error">{{ activeBody.decodeError }}</div>
     </div>
   </div>
 </template>
@@ -272,7 +329,7 @@ async function saveBody(): Promise<void> {
   margin-right: $spacing-xs;
   padding: 2px;
   border-radius: $radius-xs;
-  background: #eef1f5;
+  background: $color-code-bg;
 }
 
 .fc-body-segment-button {
@@ -324,13 +381,13 @@ async function saveBody(): Promise<void> {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: #fcfdff;
+  background: $color-surface;
 }
 
 .fc-body-code {
   margin: 0;
   padding: $spacing-lg $spacing-xl;
-  color: #23303f;
+  color: $color-code-text;
   font-family: $font-mono;
   font-size: 12.5px;
   line-height: 1.62;
@@ -346,7 +403,7 @@ async function saveBody(): Promise<void> {
 }
 
 .fc-body-code--hex {
-  color: #33506b;
+  color: $color-code-text-muted;
   font-size: 12px;
   line-height: 1.55;
 }
@@ -378,11 +435,11 @@ async function saveBody(): Promise<void> {
   margin: $spacing-xl auto;
   border: 1px solid $color-border;
   border-radius: $radius-sm;
-  background-color: #fff;
-  background-image: linear-gradient(45deg, #eef1f5 25%, transparent 25%),
-    linear-gradient(-45deg, #eef1f5 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #eef1f5 75%),
-    linear-gradient(-45deg, transparent 75%, #eef1f5 75%);
+  background-color: $color-image-bg;
+  background-image: linear-gradient(45deg, $color-checker 25%, transparent 25%),
+    linear-gradient(-45deg, $color-checker 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, $color-checker 75%),
+    linear-gradient(-45deg, transparent 75%, $color-checker 75%);
   background-size: 14px 14px;
   background-position: 0 0, 0 7px, 7px -7px, -7px 0;
   box-shadow: $shadow-sm;
@@ -422,7 +479,7 @@ async function saveBody(): Promise<void> {
 .fc-body-notice {
   margin: 0 $spacing-xl $spacing-lg;
   padding: 7px 10px;
-  border: 1px solid #f0e2c8;
+  border: 1px solid $color-warning-border;
   border-radius: $radius-sm;
   background: $color-warning-soft;
   color: $color-warning;
@@ -431,7 +488,7 @@ async function saveBody(): Promise<void> {
 }
 
 .fc-body-notice--error {
-  border-color: #f3d2d2;
+  border-color: $color-danger-border;
   background: $color-danger-soft;
   color: $color-danger;
 }

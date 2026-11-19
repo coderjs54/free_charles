@@ -5,29 +5,109 @@ use tauri::{AppHandle, Manager};
 use crate::body::{decode_buffer, render_body};
 use crate::har::build_har;
 use crate::models::{
-    AppSettings, AppSettingsPatch, ComposePayload, EntryDetail, EntryMeta, HttpsCaInfo,
+    AppSettings, AppSettingsPatch, BodyView, ComposePayload, EntryDetail, EntryMeta, HttpsCaInfo,
     ProxyStatus, SaveBodyResult, SaveResult, SessionFileData, SystemProxyState, EVENT_LOADED,
     EVENT_SETTINGS,
 };
 use crate::proxy::ProxyOptionsPatch;
+use crate::store::{DetailSnapshot, LAZY_BODY_THRESHOLD};
 use crate::AppState;
 
-fn build_detail(state: &AppState, id: &str) -> Option<EntryDetail> {
+/// 生成延迟加载占位；前端拿到 deferred=true 后会通过 get_entry_body 拉取完整内容
+fn deferred_body_view(snapshot: &DetailSnapshot, side: &str) -> BodyView {
+    let is_request = side == "request";
+    BodyView {
+        available: true,
+        size: if is_request {
+            snapshot.request_body_size
+        } else {
+            snapshot.response_body_size
+        },
+        captured_size: if is_request {
+            snapshot.request_captured
+        } else {
+            snapshot.response_captured
+        },
+        decoded_size: 0,
+        truncated: if is_request {
+            snapshot.request_truncated
+        } else {
+            snapshot.response_truncated
+        },
+        text_truncated: false,
+        kind: "empty".to_string(),
+        mime: if is_request {
+            snapshot.meta.request_mime.clone()
+        } else {
+            snapshot.meta.response_mime.clone()
+        },
+        encoding: if is_request {
+            snapshot.request_encoding.clone()
+        } else {
+            snapshot.response_encoding.clone()
+        },
+        text: None,
+        base64: None,
+        decode_error: None,
+        deferred: true,
+    }
+}
+
+/// 取单侧 BodyView：大 Body 先返回占位，小 Body 走缓存/即时解码
+fn build_body(
+    state: &AppState,
+    id: &str,
+    snapshot: &DetailSnapshot,
+    side: &str,
+    lazy: bool,
+) -> BodyView {
+    let is_request = side == "request";
+    let captured = if is_request {
+        snapshot.request_captured
+    } else {
+        snapshot.response_captured
+    };
+    if lazy && snapshot.meta.state != "pending" && captured > LAZY_BODY_THRESHOLD {
+        return deferred_body_view(snapshot, side);
+    }
+    if let Some(view) = state.store().cached_body_view(id, side) {
+        return view;
+    }
+    let view = render_body(
+        if is_request {
+            snapshot.request_body.as_ref()
+        } else {
+            snapshot.response_body.as_ref()
+        },
+        if is_request {
+            snapshot.request_body_size
+        } else {
+            snapshot.response_body_size
+        },
+        if is_request {
+            snapshot.request_truncated
+        } else {
+            snapshot.response_truncated
+        },
+        if is_request {
+            &snapshot.meta.request_mime
+        } else {
+            &snapshot.meta.response_mime
+        },
+        if is_request {
+            snapshot.request_encoding.as_deref()
+        } else {
+            snapshot.response_encoding.as_deref()
+        },
+    );
+    state.store().cache_body_view(id, side, view.clone());
+    view
+}
+
+fn build_detail(state: &AppState, id: &str, lazy: bool) -> Option<EntryDetail> {
     let snapshot = state.store().snapshot(id)?;
-    let request_body = render_body(
-        snapshot.request_body.as_ref(),
-        snapshot.request_body_size,
-        snapshot.request_truncated,
-        &snapshot.meta.request_mime,
-        snapshot.request_encoding.as_deref(),
-    );
-    let response_body = render_body(
-        snapshot.response_body.as_ref(),
-        snapshot.response_body_size,
-        snapshot.response_truncated,
-        &snapshot.meta.response_mime,
-        snapshot.response_encoding.as_deref(),
-    );
+    let request_body = build_body(state, id, &snapshot, "request", lazy);
+    let response_body = build_body(state, id, &snapshot, "response", lazy);
     Some(snapshot.into_detail(request_body, response_body))
 }
 
@@ -78,8 +158,21 @@ pub fn remove_entry(app: AppHandle, id: String) {
 }
 
 #[tauri::command]
-pub fn get_entry(app: AppHandle, id: String) -> Option<EntryDetail> {
-    build_detail(&app.state::<AppState>(), &id)
+pub fn get_entry(app: AppHandle, id: String, lazy_bodies: Option<bool>) -> Option<EntryDetail> {
+    build_detail(&app.state::<AppState>(), &id, lazy_bodies.unwrap_or(false))
+}
+
+/// 按需拉取单侧完整 Body，供详情面板打开大 Body 时使用
+#[tauri::command]
+pub fn get_entry_body(app: AppHandle, id: String, side: String) -> Option<BodyView> {
+    let state = app.state::<AppState>();
+    let snapshot = state.store().snapshot(&id)?;
+    let side = if side == "request" {
+        "request"
+    } else {
+        "response"
+    };
+    Some(build_body(&state, &id, &snapshot, side, false))
 }
 
 #[tauri::command]
@@ -153,11 +246,17 @@ fn reveal_in_file_manager(path: &str) {
 #[tauri::command]
 pub async fn update_settings(
     app: AppHandle,
-    patch: AppSettingsPatch,
+    mut patch: AppSettingsPatch,
 ) -> Result<AppSettings, String> {
     let (previous, next) = {
         let state = app.state::<AppState>();
         let previous = state.settings().get();
+        // 用户显式改动「自动系统代理」即视为已征求过同意
+        if patch.auto_system_proxy.is_some()
+            && patch.auto_system_proxy != Some(previous.auto_system_proxy)
+        {
+            patch.system_proxy_prompted = Some(true);
+        }
         let next = state.settings().update(patch);
         state.store().set_max_entries(next.max_entries);
         state.proxy.update_options(ProxyOptionsPatch {
@@ -181,8 +280,14 @@ pub async fn update_settings(
     if need_restart {
         let _ = app.state::<AppState>().proxy.start().await;
     }
-    // 处理「自动接管系统代理」开关变化；端口变化时也会在这里再次对齐
-    crate::sync_system_proxy(&app);
+    // 仅在影响系统代理的字段变化时重新应用/恢复，避免切换主题等操作触发注册表写入
+    let system_proxy_changed = previous.auto_system_proxy != next.auto_system_proxy
+        || previous.system_proxy_prompted != next.system_proxy_prompted
+        || previous.proxy_port != next.proxy_port
+        || previous.allow_lan != next.allow_lan;
+    if system_proxy_changed {
+        crate::sync_system_proxy(&app);
+    }
     Ok(next)
 }
 
@@ -223,7 +328,8 @@ pub fn export_har(app: AppHandle, path: String) -> Result<SaveResult, String> {
         .collect();
     let mut details = Vec::new();
     for id in &ids {
-        if let Some(detail) = build_detail(&state, id) {
+        // HAR 导出必须使用完整 Body，不能走延迟加载
+        if let Some(detail) = build_detail(&state, id, false) {
             details.push(detail);
         }
     }

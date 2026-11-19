@@ -212,7 +212,7 @@ async function save(): Promise<void> {
           <span class="fc-switch-text">
             <span class="fc-switch-title">自动设置 Windows 系统代理</span>
             <span class="fc-switch-desc">
-              启动代理时自动接管系统代理，停止代理或退出应用时恢复原设置；浏览器和其他遵循系统代理的程序无需手动配置（仅 Windows）
+              启动代理时自动接管系统代理，停止代理或退出应用时恢复原设置；浏览器和其他遵循系统代理的程序无需手动配置（仅 Windows，首次生效前会请求确认）
             </span>
           </span>
           <span class="fc-switch">
@@ -532,7 +532,7 @@ async function save(): Promise<void> {
   width: 32px;
   height: 18px;
   border-radius: $radius-pill;
-  background: #d5dbe4;
+  background: $color-switch-track;
   transition: background $transition-fast;
 }
 
@@ -543,7 +543,7 @@ async function save(): Promise<void> {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #fff;
+  background: $color-switch-thumb;
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.2);
   transition: transform $transition-fast;
 }
@@ -585,7 +585,7 @@ async function save(): Promise<void> {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #b8c0cc;
+  background: $color-dot-idle;
   flex: none;
 }
 

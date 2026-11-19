@@ -427,6 +427,7 @@ impl CaptureProxy {
                     started_at: None,
                 };
                 self.inner.emit_status();
+                crate::logger::log_error(&format!("代理启动失败：{message}"));
                 crate::sync_system_proxy(&self.inner.app);
                 return Err(message);
             }
@@ -460,13 +461,14 @@ impl CaptureProxy {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = ProxyStatus {
             running: true,
-            host,
+            host: host.clone(),
             port: options.port,
             recording: options.recording,
             error: None,
             started_at: Some(now_ms()),
         };
         self.inner.emit_status();
+        crate::logger::log_info(&format!("代理已启动：{host}:{}", options.port));
         crate::sync_system_proxy(&self.inner.app);
         Ok(self.status())
     }
@@ -515,6 +517,7 @@ impl CaptureProxy {
             status.started_at = None;
         }
         if !silent {
+            crate::logger::log_info("代理已停止");
             self.inner.emit_status();
             crate::sync_system_proxy(&self.inner.app);
         }
@@ -540,6 +543,9 @@ impl CaptureProxy {
                 "HTTPS 隧道请求无法重放，请先开启 HTTPS 解密并选择解密后的请求".to_string(),
             );
         }
+        if source_meta.upgrade {
+            return Err("WebSocket / Upgrade 请求无法重放".to_string());
+        }
         let target = Url::parse(&source_meta.url).map_err(|_| "原请求 URL 无法解析".to_string())?;
         if target.scheme() != "http" && target.scheme() != "https" {
             return Err("当前请求协议不支持重放".to_string());
@@ -558,6 +564,7 @@ impl CaptureProxy {
             client_ip: "127.0.0.1".to_string(),
             tunnel: false,
             decrypted: is_https,
+            upgrade: false,
             note: Some(if body_truncated {
                 "重放请求（原请求体已被截断）".to_string()
             } else {
@@ -652,6 +659,7 @@ impl CaptureProxy {
             client_ip: "127.0.0.1".to_string(),
             tunnel: false,
             decrypted: false,
+            upgrade: false,
             note: Some(if is_https {
                 "Compose 手动发送（HTTPS）".to_string()
             } else {
@@ -905,6 +913,7 @@ async fn route(
                 client_ip: peer.ip().to_string(),
                 tunnel: false,
                 decrypted,
+                upgrade: false,
                 note: None,
                 repeat_of: None,
                 http_version: Some(version_text(request.version())),
@@ -1004,7 +1013,7 @@ async fn handle_connect(
                 return start_mitm(ctx, request, peer, host, port, config);
             }
             Err(message) => {
-                eprintln!("[FreeCharles] HTTPS 解密证书准备失败：{message}");
+                crate::report_error(&ctx.app, &format!("HTTPS 解密证书准备失败：{message}"));
             }
         }
     }
@@ -1029,6 +1038,7 @@ async fn handle_connect(
                 client_ip: peer.ip().to_string(),
                 tunnel: true,
                 decrypted: false,
+                upgrade: false,
                 note: Some(SELF_NOTE.to_string()),
                 repeat_of: None,
                 http_version: Some("HTTP/1.1".to_string()),
@@ -1073,6 +1083,7 @@ async fn handle_connect(
             if let Some(id) = &tx_id {
                 lock_store(&ctx.store).finalize(id, "error", Some(message.clone()));
             }
+            crate::report_error(&ctx.app, &format!("HTTPS 隧道建立失败：{message}"));
             message_response(
                 StatusCode::BAD_GATEWAY,
                 "Bad Gateway",
@@ -1101,7 +1112,7 @@ fn start_mitm(
         let tls = match acceptor.accept(TokioIo::new(upgraded)).await {
             Ok(stream) => stream,
             Err(error) => {
-                eprintln!("[FreeCharles] HTTPS 解密握手失败：{error}");
+                crate::report_error(&ctx.app, &format!("HTTPS 解密握手失败：{error}"));
                 return;
             }
         };
@@ -1151,6 +1162,7 @@ async fn handle_upgrade(
                 client_ip: peer.ip().to_string(),
                 tunnel: false,
                 decrypted,
+                upgrade: true,
                 note: Some("WebSocket / Upgrade 连接（仅透传，不解析内容）".to_string()),
                 repeat_of: None,
                 http_version: Some(version_text(request.version())),
