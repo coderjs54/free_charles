@@ -1,6 +1,6 @@
 [package]
 name = "free-charles"
-version = "1.0.2"
+version = "1.0.3"
 description = "FreeCharles - HTTP 抓包代理桌面应用（Tauri 版）"
 authors = ["FreeCharles"]
 edition = "2021"
