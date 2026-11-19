@@ -114,6 +114,10 @@ export interface AppSettings {
   decryptHttps: boolean
   /** 是否忽略代理到上游服务器的 TLS 证书错误 */
   allowInsecureUpstream: boolean
+  /** 是否通过上游 HTTP/HTTPS 代理转发 */
+  upstreamProxyEnabled: boolean
+  /** 上游代理地址，例如 http://user:pass@proxy.company.com:8080 */
+  upstreamProxyUrl: string
   /** 单个请求/响应体最大捕获字节数 */
   maxBodySize: number
   /** 会话最大保留条目数 */

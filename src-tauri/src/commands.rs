@@ -257,6 +257,18 @@ pub async fn update_settings(
         {
             patch.system_proxy_prompted = Some(true);
         }
+        // 启用上游代理时必须先通过地址校验，避免保存一个无法使用的配置
+        let next_upstream_enabled = patch
+            .upstream_proxy_enabled
+            .unwrap_or(previous.upstream_proxy_enabled);
+        let next_upstream_url = patch
+            .upstream_proxy_url
+            .clone()
+            .unwrap_or_else(|| previous.upstream_proxy_url.clone());
+        if next_upstream_enabled {
+            crate::upstream::parse_upstream_proxy_url(&next_upstream_url)
+                .map_err(|message| format!("上游代理配置无效：{message}"))?;
+        }
         let next = state.settings().update(patch);
         state.store().set_max_entries(next.max_entries);
         state.proxy.update_options(ProxyOptionsPatch {
@@ -266,6 +278,11 @@ pub async fn update_settings(
             record_tunnels: Some(next.record_tunnels),
             decrypt_https: Some(next.decrypt_https),
             allow_insecure_upstream: Some(next.allow_insecure_upstream),
+            upstream_proxy_url: Some(if next.upstream_proxy_enabled {
+                next.upstream_proxy_url.clone()
+            } else {
+                String::new()
+            }),
         });
         let _ = tauri::Emitter::emit(&app, EVENT_SETTINGS, &next);
         (previous, next)

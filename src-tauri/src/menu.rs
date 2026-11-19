@@ -143,8 +143,7 @@ fn build_diagnostics(app: &AppHandle) -> String {
         .unwrap_or_else(|| "(状态未知)".to_string());
     let settings = state
         .as_ref()
-        .map(|value| value.settings().get())
-        .map(|value| serde_json::to_string_pretty(&value).unwrap_or_default())
+        .map(|value| redact_settings(&value.settings().get()))
         .unwrap_or_else(|| "(设置未知)".to_string());
     let logs = logger::read_diagnostic_logs();
     [
@@ -180,6 +179,33 @@ fn build_diagnostics(app: &AppHandle) -> String {
         },
     ]
     .join("\n")
+}
+
+/// 隐藏上游代理地址中的密码，避免导出诊断时泄漏凭据
+fn redact_settings(settings: &crate::models::AppSettings) -> String {
+    let mut value = serde_json::to_value(settings).unwrap_or_default();
+    if let Some(serde_json::Value::String(url)) = value.get_mut("upstreamProxyUrl") {
+        if let Some(redacted) = redact_proxy_url(url) {
+            *url = redacted;
+        }
+    }
+    serde_json::to_string_pretty(&value).unwrap_or_default()
+}
+
+/// 支持 `http://user:pass@host` 与 `user:pass@host` 两种写法
+fn redact_proxy_url(url: &str) -> Option<String> {
+    let (prefix, rest) = match url.find("://") {
+        Some(index) => (&url[..index + 3], &url[index + 3..]),
+        None => ("", url),
+    };
+    let at = rest.find('@')?;
+    let credentials = &rest[..at];
+    let colon = credentials.find(':')?;
+    Some(format!(
+        "{prefix}{}:***@{}",
+        &credentials[..colon],
+        &rest[at + 1..]
+    ))
 }
 
 /// 关于对话框：展示版本、能力说明与当前 HTTPS 解密状态

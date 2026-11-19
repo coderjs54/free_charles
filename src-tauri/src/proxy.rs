@@ -20,13 +20,12 @@ use hyper::body::{Body, Frame, Incoming};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
 use tokio_rustls::TlsAcceptor;
 use url::Url;
@@ -36,6 +35,9 @@ use crate::models::{
     now_ms, ComposePayload, EntryMeta, HeaderPair, ProxyStatus, APP_NAME, EVENT_STATUS,
 };
 use crate::store::{SessionStore, StoreEvent, TransactionInit};
+use crate::upstream::{
+    open_tunnel, parse_upstream_proxy_url, UpstreamConnector, UpstreamProxyConfig,
+};
 
 pub type RespBody = UnsyncBoxBody<Bytes, hyper::Error>;
 pub type ReqBody = UnsyncBoxBody<Bytes, hyper::Error>;
@@ -66,7 +68,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const SELF_NOTE: &str =
     "HTTPS 流量以 CONNECT 隧道透传，未解密。可在设置中开启 HTTPS 解密后查看内容。";
 
-pub type ProxyClient = Client<HttpsConnector<HttpConnector>, ReqBody>;
+pub type ProxyClient = Client<HttpsConnector<UpstreamConnector>, ReqBody>;
 
 #[derive(Clone)]
 pub struct ProxyOptions {
@@ -79,6 +81,8 @@ pub struct ProxyOptions {
     pub decrypt_https: bool,
     /// 是否忽略代理到上游服务器的 TLS 证书错误
     pub allow_insecure_upstream: bool,
+    /// 上游 HTTP/HTTPS 代理；None 表示直连
+    pub upstream_proxy: Option<UpstreamProxyConfig>,
 }
 
 #[derive(Default)]
@@ -89,6 +93,8 @@ pub struct ProxyOptionsPatch {
     pub record_tunnels: Option<bool>,
     pub decrypt_https: Option<bool>,
     pub allow_insecure_upstream: Option<bool>,
+    /// 空字符串表示关闭上游代理
+    pub upstream_proxy_url: Option<String>,
 }
 
 pub struct ServerHandle {
@@ -104,6 +110,8 @@ pub struct ProxyInner {
     pub status: Mutex<ProxyStatus>,
     pub server: Mutex<Option<ServerHandle>>,
     pub client: Mutex<ProxyClient>,
+    /// 与上游代理做 TLS 时使用的配置（ALPN 固定 http/1.1）
+    pub proxy_tls: Mutex<Arc<rustls::ClientConfig>>,
     pub ca: Arc<HttpsCa>,
 }
 
@@ -261,6 +269,32 @@ impl ProxyInner {
             .clone()
     }
 
+    /// 与上游代理做 TLS 的客户端配置快照
+    fn proxy_tls(&self) -> Arc<rustls::ClientConfig> {
+        self.proxy_tls
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// HTTP 目标走上游代理时需要携带 Proxy-Authorization；
+    /// HTTPS 目标由 CONNECT 握手携带，不能透传给目标服务器。
+    fn apply_upstream_auth(&self, headers: &mut HeaderMap, scheme: &str) {
+        if scheme != "http" {
+            return;
+        }
+        let options = self.options_snapshot();
+        let Some(upstream) = options.upstream_proxy.as_ref() else {
+            return;
+        };
+        let Some(authorization) = upstream.authorization.as_deref() else {
+            return;
+        };
+        if let Ok(value) = HeaderValue::from_str(authorization) {
+            headers.insert("proxy-authorization", value);
+        }
+    }
+
     /// 判断 origin-form 请求是否是在直接访问代理自身，避免代理把请求转发给自己造成死循环
     fn is_self_request(&self, req: &Request<Incoming>) -> bool {
         if req.uri().scheme().is_some() {
@@ -305,7 +339,12 @@ impl CaptureProxy {
             error: None,
             started_at: None,
         };
-        let client = build_client(options.allow_insecure_upstream);
+        let proxy_tls = build_proxy_tls_config(options.allow_insecure_upstream);
+        let client = build_client(
+            options.allow_insecure_upstream,
+            options.upstream_proxy.clone(),
+            proxy_tls.clone(),
+        );
         Self {
             inner: Arc::new(ProxyInner {
                 store,
@@ -314,6 +353,7 @@ impl CaptureProxy {
                 status: Mutex::new(status),
                 server: Mutex::new(None),
                 client: Mutex::new(client),
+                proxy_tls: Mutex::new(proxy_tls),
                 ca,
             }),
         }
@@ -351,14 +391,48 @@ impl CaptureProxy {
                 rebuild_client = options.allow_insecure_upstream != value;
                 options.allow_insecure_upstream = value;
             }
+            if let Some(raw) = patch.upstream_proxy_url {
+                let next = if raw.trim().is_empty() {
+                    None
+                } else {
+                    match parse_upstream_proxy_url(&raw) {
+                        Ok(config) => Some(config),
+                        Err(message) => {
+                            crate::report_error(
+                                &self.inner.app,
+                                &format!("上游代理配置无效：{message}"),
+                            );
+                            // 配置无效时保留原设置，避免静默退化为直连
+                            options.upstream_proxy.clone()
+                        }
+                    }
+                };
+                if next != options.upstream_proxy {
+                    rebuild_client = true;
+                    options.upstream_proxy = next;
+                }
+            }
         }
         if rebuild_client {
-            let insecure = self.inner.options_snapshot().allow_insecure_upstream;
+            let (insecure, upstream) = {
+                let options = self.inner.options_snapshot();
+                (
+                    options.allow_insecure_upstream,
+                    options.upstream_proxy.clone(),
+                )
+            };
+            let proxy_tls = build_proxy_tls_config(insecure);
             *self
                 .inner
                 .client
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = build_client(insecure);
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                build_client(insecure, upstream, proxy_tls.clone());
+            *self
+                .inner
+                .proxy_tls
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = proxy_tls;
         }
         let options = self.inner.options_snapshot();
         let mut status = self.inner.status_snapshot();
@@ -552,7 +626,9 @@ impl CaptureProxy {
         }
         let is_https = target.scheme() == "https";
         let authority = authority_of(&target);
-        let headers = build_outgoing_headers_from_pairs(&request_headers, &authority);
+        let mut headers = build_outgoing_headers_from_pairs(&request_headers, &authority);
+        self.inner
+            .apply_upstream_auth(&mut headers, target.scheme());
 
         let tx_id = self.create_transaction(TransactionInit {
             method: source_meta.method.clone(),
@@ -623,6 +699,7 @@ impl CaptureProxy {
         let pairs = parse_header_text(&payload.headers);
         let authority = authority_of(&target);
         let mut headers = build_outgoing_headers_from_pairs(&pairs, &authority);
+        self.inner.apply_upstream_auth(&mut headers, &scheme);
         let body = if payload.body.is_empty() {
             None
         } else {
@@ -926,7 +1003,8 @@ async fn route(
     };
 
     let authority = target.authority();
-    let outgoing_headers = build_outgoing_headers(&request_headers, &authority);
+    let mut outgoing_headers = build_outgoing_headers(&request_headers, &authority);
+    ctx.apply_upstream_auth(&mut outgoing_headers, &target.scheme);
     let uri = target
         .upstream_uri()
         .parse::<http::Uri>()
@@ -1051,14 +1129,30 @@ async fn handle_connect(
         None
     };
 
-    match TcpStream::connect((host.as_str(), port)).await {
+    let options = ctx.options_snapshot();
+    let upstream_label = options
+        .upstream_proxy
+        .as_ref()
+        .map(|upstream| format!("{}:{}", upstream.host, upstream.port));
+    match open_tunnel(
+        options.upstream_proxy.as_ref(),
+        &ctx.proxy_tls(),
+        &host,
+        port,
+    )
+    .await
+    {
         Ok(upstream) => {
             if let Some(id) = &tx_id {
+                let mut headers = vec![("proxy-agent".to_string(), APP_NAME.to_string())];
+                if let Some(label) = &upstream_label {
+                    headers.push(("upstream-proxy".to_string(), label.clone()));
+                }
                 let mut store = lock_store(&ctx.store);
                 if let Some(tx) = store.tx_mut(id) {
                     tx.meta.status = Some(200);
                     tx.meta.status_text = Some("Connection Established".to_string());
-                    tx.response_headers = vec![("proxy-agent".to_string(), APP_NAME.to_string())];
+                    tx.response_headers = headers;
                     tx.response_header_size = 0;
                     tx.meta.response_size = 0;
                 }
@@ -1179,7 +1273,8 @@ async fn handle_upgrade(
         .upstream_uri()
         .parse::<http::Uri>()
         .map_err(|_| "请求地址无法解析".to_string())?;
-    let outgoing_headers = build_upgrade_headers(&request_headers, &authority);
+    let mut outgoing_headers = build_upgrade_headers(&request_headers, &authority);
+    ctx.apply_upstream_auth(&mut outgoing_headers, &target.scheme);
 
     // 客户端升级句柄必须在响应发出之前取到
     let client_upgrade = hyper::upgrade::on(&mut request);
@@ -1783,9 +1878,9 @@ fn friendly_io_error(error: &std::io::Error) -> String {
     }
 }
 
-/// 构建支持 http / https 的上游客户端；`allow_insecure` 时跳过证书校验
-fn build_client(allow_insecure: bool) -> ProxyClient {
-    let config = if allow_insecure {
+/// 构建目标站点的 TLS 配置；`allow_insecure` 时跳过证书校验
+fn build_tls_config(allow_insecure: bool) -> ClientConfig {
+    if allow_insecure {
         ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(InsecureVerifier))
@@ -1800,13 +1895,27 @@ fn build_client(allow_insecure: bool) -> ProxyClient {
         ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth()
-    };
+    }
+}
 
+/// 与上游代理做 TLS 时固定 HTTP/1.1，避免协商出 HTTP/2
+fn build_proxy_tls_config(allow_insecure: bool) -> Arc<ClientConfig> {
+    let mut config = build_tls_config(allow_insecure);
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Arc::new(config)
+}
+
+/// 构建支持 http / https 的上游客户端；`allow_insecure` 时跳过证书校验
+fn build_client(
+    allow_insecure: bool,
+    upstream: Option<UpstreamProxyConfig>,
+    proxy_tls: Arc<ClientConfig>,
+) -> ProxyClient {
     let connector = HttpsConnectorBuilder::new()
-        .with_tls_config(config)
+        .with_tls_config(build_tls_config(allow_insecure))
         .https_or_http()
         .enable_http1()
-        .build();
+        .wrap_connector(UpstreamConnector::new(upstream, proxy_tls));
     Client::builder(TokioExecutor::new()).build(connector)
 }
 
@@ -1900,4 +2009,60 @@ pub fn make_event_sink(app: tauri::AppHandle) -> crate::store::EventSink {
             let _ = app.emit(crate::models::EVENT_CLEAR, ());
         }
     })
+}
+
+#[cfg(test)]
+mod upstream_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn http_target_uses_absolute_form_through_upstream() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = listener.local_addr().unwrap();
+        let (head_tx, head_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                let read = socket.read(&mut chunk).await.unwrap();
+                if read == 0 {
+                    break;
+                }
+                buffer.extend_from_slice(&chunk[..read]);
+                if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let _ = head_tx.send(String::from_utf8_lossy(&buffer).to_string());
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .unwrap();
+        });
+
+        let config = UpstreamProxyConfig {
+            url: format!("http://127.0.0.1:{}", proxy_addr.port()),
+            scheme: "http".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: proxy_addr.port(),
+            authorization: Some("Basic dXNlcjpwYXNz".to_string()),
+        };
+        let client = build_client(false, Some(config), build_proxy_tls_config(false));
+        let request = Request::builder()
+            .method("GET")
+            .uri("http://example.test/path?q=1")
+            .body(Empty::<Bytes>::new().map_err(never_to_hyper).boxed_unsync())
+            .unwrap();
+        let response = client.request(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let head = head_rx.await.unwrap();
+        assert!(
+            head.starts_with("GET http://example.test/path?q=1 HTTP/1.1"),
+            "{head}"
+        );
+        assert!(head.to_lowercase().contains("host: example.test"));
+    }
 }

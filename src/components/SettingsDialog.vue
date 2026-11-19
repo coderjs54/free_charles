@@ -20,6 +20,8 @@ const form = reactive({
   autoSystemProxy: settings.value?.autoSystemProxy ?? true,
   decryptHttps: settings.value?.decryptHttps ?? false,
   allowInsecureUpstream: settings.value?.allowInsecureUpstream ?? false,
+  upstreamProxyEnabled: settings.value?.upstreamProxyEnabled ?? false,
+  upstreamProxyUrl: settings.value?.upstreamProxyUrl ?? '',
   recordTunnels: settings.value?.recordTunnels ?? true,
   bodyLimitMb: Math.round(((settings.value?.maxBodySize ?? 5 * 1024 * 1024) / 1024 / 1024) * 10) / 10,
   maxEntries: settings.value?.maxEntries ?? 3000
@@ -144,6 +146,8 @@ async function save(): Promise<void> {
       autoSystemProxy: form.autoSystemProxy,
       decryptHttps: form.decryptHttps,
       allowInsecureUpstream: form.allowInsecureUpstream,
+      upstreamProxyEnabled: form.upstreamProxyEnabled,
+      upstreamProxyUrl: form.upstreamProxyUrl.trim(),
       recordTunnels: form.recordTunnels,
       maxBodySize: Math.round(bodyLimitMb * 1024 * 1024),
       maxEntries
@@ -232,6 +236,43 @@ async function save(): Promise<void> {
           <span class="fc-system-proxy-dot" />
           <span class="fc-system-proxy-text">{{ systemProxyStatusText }}</span>
         </div>
+      </section>
+
+      <section class="fc-settings-section">
+        <h3 class="fc-settings-heading">上游代理</h3>
+
+        <label class="fc-switch-row">
+          <span class="fc-switch-text">
+            <span class="fc-switch-title">通过上游代理转发</span>
+            <span class="fc-switch-desc">
+              企业网络需要先经过公司 HTTP 代理时开启；普通 HTTP、HTTPS 和 CONNECT 隧道都会通过该代理转发
+            </span>
+          </span>
+          <span class="fc-switch">
+            <input
+              v-model="form.upstreamProxyEnabled"
+              class="fc-switch-input"
+              type="checkbox"
+              data-testid="upstream-proxy-enabled"
+            />
+            <span class="fc-switch-track"><span class="fc-switch-thumb" /></span>
+          </span>
+        </label>
+
+        <label v-if="form.upstreamProxyEnabled" class="fc-field">
+          <span class="fc-field-label">上游代理地址</span>
+          <input
+            v-model="form.upstreamProxyUrl"
+            class="fc-input"
+            type="text"
+            placeholder="http://proxy.company.com:8080"
+            spellcheck="false"
+            data-testid="upstream-proxy-url"
+          />
+          <span class="fc-field-hint">
+            支持 http / https，可写成 <code>http://user:pass@host:port</code>；凭据会以明文保存在本机设置文件中
+          </span>
+        </label>
       </section>
 
       <section class="fc-settings-section">

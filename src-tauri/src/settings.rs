@@ -44,6 +44,12 @@ impl SettingsStore {
         if let Some(value) = patch.allow_insecure_upstream {
             next.allow_insecure_upstream = value;
         }
+        if let Some(value) = patch.upstream_proxy_enabled {
+            next.upstream_proxy_enabled = value;
+        }
+        if let Some(value) = patch.upstream_proxy_url {
+            next.upstream_proxy_url = value;
+        }
         if let Some(value) = patch.max_body_size {
             next.max_body_size = value;
         }
@@ -93,6 +99,8 @@ fn normalize(input: AppSettings) -> AppSettings {
         system_proxy_prompted: input.system_proxy_prompted,
         decrypt_https: input.decrypt_https,
         allow_insecure_upstream: input.allow_insecure_upstream,
+        upstream_proxy_enabled: input.upstream_proxy_enabled,
+        upstream_proxy_url: input.upstream_proxy_url.trim().to_string(),
         max_body_size: input.max_body_size.clamp(MIN_BODY_LIMIT, MAX_BODY_LIMIT),
         max_entries: input.max_entries.clamp(MIN_ENTRIES, MAX_ENTRIES),
         record_tunnels: input.record_tunnels,

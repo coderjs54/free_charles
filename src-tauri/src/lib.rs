@@ -11,6 +11,7 @@ mod proxy;
 mod settings;
 mod store;
 mod system_proxy;
+mod upstream;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -119,6 +120,17 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // 本地 HTTPS 解密 CA：启动时尝试加载已有根证书，不主动生成
     let ca = Arc::new(HttpsCa::new(data_dir.join("https-ca")));
     ca.warmup();
+    let upstream_proxy = if settings.upstream_proxy_enabled {
+        match upstream::parse_upstream_proxy_url(&settings.upstream_proxy_url) {
+            Ok(config) => Some(config),
+            Err(message) => {
+                logger::log_error(&format!("上游代理配置无效：{message}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
     let proxy = CaptureProxy::new(
         store.clone(),
         handle.clone(),
@@ -130,6 +142,7 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             recording: true,
             decrypt_https: settings.decrypt_https,
             allow_insecure_upstream: settings.allow_insecure_upstream,
+            upstream_proxy,
         },
         ca.clone(),
     );

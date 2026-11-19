@@ -155,6 +155,10 @@ pub struct AppSettings {
     pub decrypt_https: bool,
     /// 是否忽略代理到上游服务器的 TLS 证书错误（仅调试自签名/内部站点）
     pub allow_insecure_upstream: bool,
+    /// 是否通过上游 HTTP/HTTPS 代理转发
+    pub upstream_proxy_enabled: bool,
+    /// 上游代理地址，例如 http://user:pass@proxy.company.com:8080
+    pub upstream_proxy_url: String,
     /// 单个请求/响应体最大捕获字节数
     pub max_body_size: u64,
     /// 会话最大保留条目数
@@ -177,6 +181,8 @@ impl Default for AppSettings {
             // HTTPS 解密需要用户主动安装根证书，默认关闭
             decrypt_https: false,
             allow_insecure_upstream: false,
+            upstream_proxy_enabled: false,
+            upstream_proxy_url: String::new(),
             max_body_size: 5 * 1024 * 1024,
             max_entries: 3000,
             record_tunnels: true,
@@ -196,6 +202,8 @@ pub struct AppSettingsPatch {
     pub system_proxy_prompted: Option<bool>,
     pub decrypt_https: Option<bool>,
     pub allow_insecure_upstream: Option<bool>,
+    pub upstream_proxy_enabled: Option<bool>,
+    pub upstream_proxy_url: Option<String>,
     pub max_body_size: Option<u64>,
     pub max_entries: Option<usize>,
     pub record_tunnels: Option<bool>,
